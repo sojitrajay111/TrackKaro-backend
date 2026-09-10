@@ -40,7 +40,7 @@ export class KhataService {
       date: dto.date,
       dueDate: dto.dueDate,
       notes: dto.notes,
-      status: 'pending',
+      status: dto.status ?? 'pending',
     });
     return this.toPublic(doc);
   }

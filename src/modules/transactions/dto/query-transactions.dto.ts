@@ -31,6 +31,6 @@ export class QueryTransactionsDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(200)
+  @Max(500)
   limit: number = 50;
 }
