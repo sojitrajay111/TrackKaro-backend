@@ -1,23 +1,21 @@
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { ExpressAdapter } from '@nestjs/platform-express';
-import express, { Express } from 'express';
+import { INestApplication } from '@nestjs/common';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from '@/common/filters/http-exception.filter';
 import { AppConfig } from '@/config/configuration';
 
-let cachedServer: Express | null = null;
+let cachedApp: INestApplication | null = null;
 
-export async function bootstrapServer(): Promise<Express> {
-  if (cachedServer) {
-    return cachedServer;
+export async function bootstrapApp(): Promise<INestApplication> {
+  if (cachedApp) {
+    return cachedApp;
   }
 
-  const server = express();
-  const app = await NestFactory.create(AppModule, new ExpressAdapter(server));
+  const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService<AppConfig>);
 
   app.use(helmet());
@@ -48,23 +46,24 @@ export async function bootstrapServer(): Promise<Express> {
   app.useGlobalFilters(new AllExceptionsFilter());
 
   await app.init();
-  cachedServer = server;
-  return cachedServer;
+  cachedApp = app;
+  return cachedApp;
 }
 
 // Local standalone server
 if (!process.env.VERCEL) {
-  bootstrapServer().then((server) => {
-    const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
-    server.listen(port, () => {
-      // eslint-disable-next-line no-console
-      console.log(`TrackKaro API listening on http://localhost:${port}`);
-    });
+  bootstrapApp().then(async (app) => {
+    const config = app.get(ConfigService<AppConfig>);
+    const port = config.get('port', { infer: true }) ?? 4000;
+    await app.listen(port);
+    // eslint-disable-next-line no-console
+    console.log(`TrackKaro API listening on http://localhost:${port}`);
   });
 }
 
 // Vercel Serverless Function entrypoint
 export default async function handler(req: any, res: any) {
-  const server = await bootstrapServer();
-  return server(req, res);
+  const app = await bootstrapApp();
+  const instance = app.getHttpAdapter().getInstance();
+  return instance(req, res);
 }
