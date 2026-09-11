@@ -24,7 +24,7 @@ export class UsersService {
     return this.userModel.findById(id).exec();
   }
 
-  async create(data: { email: string; passwordHash: string; name: string }): Promise<UserDocument> {
+  async create(data: { email: string; passwordHash: string; name: string; phone?: string }): Promise<UserDocument> {
     return this.userModel.create(data);
   }
 

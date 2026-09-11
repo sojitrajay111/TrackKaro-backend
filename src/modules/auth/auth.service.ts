@@ -41,7 +41,12 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
-    const user = await this.usersService.create({ email: dto.email, passwordHash, name: dto.name });
+    const user = await this.usersService.create({
+      email: dto.email,
+      passwordHash,
+      name: dto.name,
+      phone: dto.phone,
+    });
     await this.dealsService.seedDefaultDeals(user._id.toString());
 
     return this.issueTokenPair(user._id.toString(), this.usersService.toPublicUser(user));
