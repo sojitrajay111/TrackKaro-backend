@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 
 import { CurrentUser, CurrentUserPayload } from '@/common/decorators/current-user.decorator';
 import { DealsService } from './deals.service';
@@ -11,6 +11,11 @@ export class DealsController {
   @Get()
   findAll(@CurrentUser() user: CurrentUserPayload) {
     return this.dealsService.findAll(user.userId);
+  }
+
+  @Get('search')
+  searchRealDeals(@CurrentUser() user: CurrentUserPayload, @Query('q') query?: string) {
+    return this.dealsService.findRealDealsWithAI(user.userId, query);
   }
 
   @Patch(':id/track')

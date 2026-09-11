@@ -1,5 +1,5 @@
 import { Type, plainToInstance } from 'class-transformer';
-import { IsInt, IsString, Max, Min, validateSync } from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, Min, validateSync } from 'class-validator';
 
 class EnvironmentVariables {
   @Type(() => Number)
@@ -25,6 +25,10 @@ class EnvironmentVariables {
 
   @IsString()
   CORS_ORIGINS = '';
+
+  @IsOptional()
+  @IsString()
+  GEMINI_API_KEY?: string;
 }
 
 /** Validates process.env at bootstrap so a misconfigured deploy fails fast instead of at first request. */

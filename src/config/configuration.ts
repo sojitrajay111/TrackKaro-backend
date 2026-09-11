@@ -8,6 +8,7 @@ export interface AppConfig {
     refreshTtl: string;
   };
   corsOrigins: string[];
+  geminiApiKey: string;
 }
 
 export default (): AppConfig => ({
@@ -23,4 +24,5 @@ export default (): AppConfig => ({
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean),
+  geminiApiKey: process.env.GEMINI_API_KEY ?? '',
 });

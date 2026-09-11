@@ -20,7 +20,7 @@ export const DEAL_SEED = [
     rating: 4.8,
     imageUrl:
       'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=600&q=80',
-    tracked: true,
+    tracked: false,
     targetPrice: 4500,
   },
   {
@@ -59,7 +59,7 @@ export const DEAL_SEED = [
     rating: 4.7,
     imageUrl:
       'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=600&q=80',
-    tracked: true,
+    tracked: false,
   },
   {
     title: 'Sony Bravia 55" 4K Smart TV',
@@ -97,7 +97,7 @@ export const DEAL_SEED = [
     rating: 4.6,
     imageUrl:
       'https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?auto=format&fit=crop&w=600&q=80',
-    tracked: true,
+    tracked: false,
   },
   {
     title: 'Lenskart Air: Buy 1 Get 1 Free + Gold Perks',
@@ -116,6 +116,6 @@ export const DEAL_SEED = [
     rating: 4.9,
     imageUrl:
       'https://images.unsplash.com/photo-1572635196237-14b3f281503f?auto=format&fit=crop&w=600&q=80',
-    tracked: true,
+    tracked: false,
   },
 ];
