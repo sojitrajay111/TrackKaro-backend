@@ -5,7 +5,6 @@ import { Model, Types } from 'mongoose';
 
 import { formatINR, toMajorUnits, toMinorUnits } from '@/common/money/money.util';
 import { NotificationsService } from '@/modules/notifications/notifications.service';
-import { DEAL_SEED } from './deals.seed';
 import { Deal, DealDocument } from './schemas/deal.schema';
 
 export interface PublicDeal {
@@ -40,28 +39,12 @@ export class DealsService {
   ) {}
 
   async seedDefaultDeals(userId: string): Promise<void> {
-    await this.dealModel.insertMany(
-      DEAL_SEED.map((d) => ({
-        userId,
-        title: d.title,
-        platform: d.platform,
-        category: d.category,
-        originalPriceMinor: toMinorUnits(d.originalPrice),
-        currentPriceMinor: toMinorUnits(d.currentPrice),
-        discountPercent: d.discountPercent,
-        couponCode: d.couponCode,
-        cashbackText: d.cashbackText,
-        deliveryChargeMinor: toMinorUnits(d.deliveryCharge),
-        finalPriceMinor: toMinorUnits(d.finalPrice),
-        savingsAmountMinor: toMinorUnits(d.savingsAmount),
-        expiryDate: d.expiryDate,
-        bestReason: d.bestReason,
-        rating: d.rating,
-        imageUrl: d.imageUrl,
-        tracked: d.tracked,
-        targetPriceMinor: d.targetPrice !== undefined ? toMinorUnits(d.targetPrice) : undefined,
-      })),
-    );
+    try {
+      await this.findRealDealsWithAI(userId);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Could not seed live AI deals: ${message}`);
+    }
   }
 
   async deleteAllForUser(userId: string): Promise<void> {
@@ -70,6 +53,9 @@ export class DealsService {
 
   async findAll(userId: string): Promise<PublicDeal[]> {
     const docs = await this.dealModel.find({ userId }).exec();
+    if (docs.length === 0) {
+      return this.findRealDealsWithAI(userId);
+    }
     return docs.map((doc) => this.toPublic(doc));
   }
 
@@ -132,14 +118,17 @@ export class DealsService {
       return this.findAll(userId);
     }
 
-    const prompt = `You are an Indian shopping deal finder. Find 6 current, real, realistic discounts and promotions available in India across platforms like Amazon, Flipkart, Myntra, Swiggy, Zomato, Croma, Nykaa, or Tata CLiQ ${
-      query ? `matching "${query}"` : 'across top electronics, fashion, food, and home categories'
+    const count = query && query !== 'All' ? 6 : 12;
+    const prompt = `You are an Indian shopping deal finder. Find ${count} current, real, realistic promotional discounts and offers available in India across platforms like Amazon, Flipkart, Myntra, Swiggy, Zomato, Croma, Nykaa, MakeMyTrip, or Tata CLiQ ${
+      query && query !== 'All' ? `specifically for the category or search: "${query}"` : 'with 2 deals each across: Electronics, Fashion, Food, Beauty, Travel, and Home'
     }.
+
+Categories must strictly be one of: "Electronics", "Fashion", "Food", "Beauty", "Travel", "Home".
 
 Return a JSON array of objects matching this exact format:
 [
   {
-    "title": "Exact product or offer name",
+    "title": "Exact product or promotional offer name",
     "platform": "Amazon",
     "category": "Electronics",
     "originalPrice": 2999,
@@ -158,7 +147,7 @@ Return a JSON array of objects matching this exact format:
 Return ONLY a valid raw JSON array without markdown backticks.`;
 
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -177,31 +166,72 @@ Return ONLY a valid raw JSON array without markdown backticks.`;
         if (rawJson) {
           const parsed = JSON.parse(rawJson);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            // Keep user's actively tracked deals, replace untracked ones with fresh real deals
-            await this.dealModel.deleteMany({ userId, tracked: false }).exec();
+            const normalizeCategory = (cat?: string): string => {
+              if (!cat) return 'Shopping';
+              const lower = cat.toLowerCase();
+              if (lower.includes('elec') || lower.includes('gadget') || lower.includes('phone') || lower.includes('tv')) return 'Electronics';
+              if (lower.includes('fash') || lower.includes('cloth') || lower.includes('shoe') || lower.includes('wear')) return 'Fashion';
+              if (lower.includes('food') || lower.includes('dine') || lower.includes('restaurant') || lower.includes('meal')) return 'Food';
+              if (lower.includes('beaut') || lower.includes('skin') || lower.includes('cosmetic')) return 'Beauty';
+              if (lower.includes('travel') || lower.includes('flight') || lower.includes('hotel') || lower.includes('trip')) return 'Travel';
+              if (lower.includes('home') || lower.includes('kitchen') || lower.includes('appliance') || lower.includes('bed')) return 'Home';
+              return 'Shopping';
+            };
+
+            const getCategoryFallbackImage = (cat: string): string => {
+              switch (cat) {
+                case 'Electronics':
+                  return 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80';
+                case 'Fashion':
+                  return 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=600&q=80';
+                case 'Food':
+                  return 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=600&q=80';
+                case 'Beauty':
+                  return 'https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&w=600&q=80';
+                case 'Travel':
+                  return 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?auto=format&fit=crop&w=600&q=80';
+                case 'Home':
+                  return 'https://images.unsplash.com/photo-1585515320310-259814833e62?auto=format&fit=crop&w=600&q=80';
+                default:
+                  return 'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?auto=format&fit=crop&w=600&q=80';
+              }
+            };
+
+            // If query is for a specific category, delete untracked deals in that category; else delete all untracked
+            if (query && query !== 'All') {
+              const targetCat = normalizeCategory(query);
+              await this.dealModel.deleteMany({ userId, tracked: false, category: targetCat }).exec();
+            } else {
+              await this.dealModel.deleteMany({ userId, tracked: false }).exec();
+            }
+
             await this.dealModel.insertMany(
-              parsed.map((d: any) => ({
-                userId: new Types.ObjectId(userId),
-                title: String(d.title || 'Special Deal'),
-                platform: String(d.platform || 'Amazon'),
-                category: String(d.category || 'Shopping'),
-                originalPriceMinor: toMinorUnits(Number(d.originalPrice) || 0),
-                currentPriceMinor: toMinorUnits(Number(d.currentPrice) || 0),
-                discountPercent: Number(d.discountPercent) || 0,
-                couponCode: d.couponCode ? String(d.couponCode) : undefined,
-                cashbackText: d.cashbackText ? String(d.cashbackText) : undefined,
-                deliveryChargeMinor: toMinorUnits(Number(d.deliveryCharge) || 0),
-                finalPriceMinor: toMinorUnits(Number(d.finalPrice || d.currentPrice) || 0),
-                savingsAmountMinor: toMinorUnits(Number(d.savingsAmount) || 0),
-                expiryDate: String(
-                  d.expiryDate || new Date(Date.now() + 86400000 * 7).toISOString().split('T')[0],
-                ),
-                bestReason: String(
-                  d.bestReason || 'Verified active discount with additional card perks.',
-                ),
-                rating: Number(d.rating) || 4.7,
-                tracked: false,
-              })),
+              parsed.map((d: any) => {
+                const cat = normalizeCategory(d.category);
+                return {
+                  userId: new Types.ObjectId(userId),
+                  title: String(d.title || 'Special Deal'),
+                  platform: String(d.platform || 'Amazon'),
+                  category: cat,
+                  originalPriceMinor: toMinorUnits(Number(d.originalPrice) || 0),
+                  currentPriceMinor: toMinorUnits(Number(d.currentPrice) || 0),
+                  discountPercent: Number(d.discountPercent) || 0,
+                  couponCode: d.couponCode ? String(d.couponCode) : undefined,
+                  cashbackText: d.cashbackText ? String(d.cashbackText) : undefined,
+                  deliveryChargeMinor: toMinorUnits(Number(d.deliveryCharge) || 0),
+                  finalPriceMinor: toMinorUnits(Number(d.finalPrice || d.currentPrice) || 0),
+                  savingsAmountMinor: toMinorUnits(Number(d.savingsAmount) || 0),
+                  expiryDate: String(
+                    d.expiryDate || new Date(Date.now() + 86400000 * 7).toISOString().split('T')[0],
+                  ),
+                  bestReason: String(
+                    d.bestReason || 'Verified active discount with additional card perks.',
+                  ),
+                  rating: Number(d.rating) || 4.7,
+                  imageUrl: d.imageUrl || getCategoryFallbackImage(cat),
+                  tracked: false,
+                };
+              }),
             );
             return this.findAll(userId);
           }
