@@ -26,6 +26,7 @@ export interface PublicDeal {
   imageUrl?: string;
   tracked?: boolean;
   targetPrice?: number;
+  dealUrl?: string;
 }
 
 @Injectable()
@@ -118,30 +119,40 @@ export class DealsService {
       return this.findAll(userId);
     }
 
+    const todayStr = new Date().toISOString().split('T')[0];
+    const expiryMinStr = new Date(Date.now() + 86400000 * 7).toISOString().split('T')[0];
+    const expiryMaxStr = new Date(Date.now() + 86400000 * 35).toISOString().split('T')[0];
+
     const count = query && query !== 'All' ? 6 : 12;
-    const prompt = `You are an Indian shopping deal finder. Find ${count} current, real, realistic promotional discounts and offers available in India across platforms like Amazon, Flipkart, Myntra, Swiggy, Zomato, Croma, Nykaa, MakeMyTrip, or Tata CLiQ ${
+    const prompt = `You are an Indian shopping deal finder. Today's date is ${todayStr} (Year 2026).
+Find ${count} current, real promotional discounts and offers available in India across platforms like Amazon, Flipkart, Myntra, Swiggy, Zomato, Croma, Nykaa, MakeMyTrip, or Tata CLiQ ${
       query && query !== 'All' ? `specifically for the category or search: "${query}"` : 'with 2 deals each across: Electronics, Fashion, Food, Beauty, Travel, and Home'
     }.
 
-Categories must strictly be one of: "Electronics", "Fashion", "Food", "Beauty", "Travel", "Home".
+IMPORTANT RULES:
+1. Current Year is 2026. Every expiryDate MUST be in 2026 between "${expiryMinStr}" and "${expiryMaxStr}". Do NOT use past years like 2024 or 2025.
+2. Provide real product models and realistic Indian market pricing in INR.
+3. Categories must strictly be one of: "Electronics", "Fashion", "Food", "Beauty", "Travel", "Home".
+4. Include a valid "dealUrl" field for each deal (a platform search or direct offer URL, e.g., https://www.amazon.in/s?k=... or https://www.flipkart.com/search?q=...).
 
 Return a JSON array of objects matching this exact format:
 [
   {
-    "title": "Exact product or promotional offer name",
+    "title": "boAt Airdopes 141 Bluetooth TWS Earbuds",
     "platform": "Amazon",
     "category": "Electronics",
-    "originalPrice": 2999,
-    "currentPrice": 1799,
-    "discountPercent": 40,
-    "couponCode": "SAVE200",
-    "cashbackText": "Flat ₹150 Instant Bank Discount",
+    "originalPrice": 4490,
+    "currentPrice": 1299,
+    "discountPercent": 71,
+    "couponCode": "SAVE100",
+    "cashbackText": "Flat ₹100 Instant Bank Discount on HDFC Cards",
     "deliveryCharge": 0,
-    "finalPrice": 1649,
-    "savingsAmount": 1350,
-    "expiryDate": "${new Date(Date.now() + 86400000 * 7).toISOString().split('T')[0]}",
-    "bestReason": "Verified promotional price with instant bank discount.",
-    "rating": 4.7
+    "finalPrice": 1199,
+    "savingsAmount": 3291,
+    "expiryDate": "${expiryMinStr}",
+    "bestReason": "Lowest price drop with instant bank discount.",
+    "rating": 4.5,
+    "dealUrl": "https://www.amazon.in/s?k=boAt+Airdopes+141"
   }
 ]
 Return ONLY a valid raw JSON array without markdown backticks.`;
@@ -208,10 +219,22 @@ Return ONLY a valid raw JSON array without markdown backticks.`;
             await this.dealModel.insertMany(
               parsed.map((d: any) => {
                 const cat = normalizeCategory(d.category);
+                const platform = String(d.platform || 'Amazon');
+                const title = String(d.title || 'Special Deal');
+                
+                // Guarantee future 2026 date even if AI hallucinates an older year
+                let expiry = String(d.expiryDate || '');
+                if (!expiry || expiry.startsWith('2024') || expiry.startsWith('2025') || expiry < todayStr) {
+                  const daysAhead = 10 + Math.floor(Math.random() * 20);
+                  expiry = new Date(Date.now() + 86400000 * daysAhead).toISOString().split('T')[0];
+                }
+
+                const dealUrl = d.dealUrl ? String(d.dealUrl) : this.getPlatformSearchUrl(platform, title);
+
                 return {
                   userId: new Types.ObjectId(userId),
-                  title: String(d.title || 'Special Deal'),
-                  platform: String(d.platform || 'Amazon'),
+                  title,
+                  platform,
                   category: cat,
                   originalPriceMinor: toMinorUnits(Number(d.originalPrice) || 0),
                   currentPriceMinor: toMinorUnits(Number(d.currentPrice) || 0),
@@ -221,15 +244,14 @@ Return ONLY a valid raw JSON array without markdown backticks.`;
                   deliveryChargeMinor: toMinorUnits(Number(d.deliveryCharge) || 0),
                   finalPriceMinor: toMinorUnits(Number(d.finalPrice || d.currentPrice) || 0),
                   savingsAmountMinor: toMinorUnits(Number(d.savingsAmount) || 0),
-                  expiryDate: String(
-                    d.expiryDate || new Date(Date.now() + 86400000 * 7).toISOString().split('T')[0],
-                  ),
+                  expiryDate: expiry,
                   bestReason: String(
                     d.bestReason || 'Verified active discount with additional card perks.',
                   ),
                   rating: Number(d.rating) || 4.7,
                   imageUrl: d.imageUrl || getCategoryFallbackImage(cat),
                   tracked: false,
+                  dealUrl,
                 };
               }),
             );
@@ -243,6 +265,24 @@ Return ONLY a valid raw JSON array without markdown backticks.`;
     }
 
     return this.findAll(userId);
+  }
+
+  getPlatformSearchUrl(platform: string, title: string): string {
+    const p = (platform || '').toLowerCase().trim();
+    const encoded = encodeURIComponent(title || '');
+    if (p.includes('amazon')) return `https://www.amazon.in/s?k=${encoded}`;
+    if (p.includes('flipkart')) return `https://www.flipkart.com/search?q=${encoded}`;
+    if (p.includes('myntra')) return `https://www.myntra.com/${encodeURIComponent((title || '').replace(/\s+/g, '-'))}`;
+    if (p.includes('swiggy')) return `https://www.swiggy.com/search?query=${encoded}`;
+    if (p.includes('zomato')) return `https://www.zomato.com/india`;
+    if (p.includes('nykaa')) return `https://www.nykaa.com/search/result/?q=${encoded}`;
+    if (p.includes('tata') || p.includes('cliq')) return `https://www.tatacliq.com/search/?searchCategory=all&text=${encoded}`;
+    if (p.includes('croma')) return `https://www.croma.com/searchB?q=${encoded}`;
+    if (p.includes('makemytrip') || p.includes('mmt')) return `https://www.makemytrip.com/`;
+    if (p.includes('lenskart')) return `https://www.lenskart.com/search?q=${encoded}`;
+    if (p.includes('ajio')) return `https://www.ajio.com/search/?text=${encoded}`;
+    if (p.includes('nike')) return `https://www.nike.com/in/w?q=${encoded}`;
+    return `https://www.google.com/search?q=${encodeURIComponent(`${platform} ${title} buy offer`)}`;
   }
 
   private toPublic(doc: DealDocument): PublicDeal {
@@ -266,6 +306,7 @@ Return ONLY a valid raw JSON array without markdown backticks.`;
       tracked: doc.tracked,
       targetPrice:
         doc.targetPriceMinor !== undefined ? toMajorUnits(doc.targetPriceMinor) : undefined,
+      dealUrl: doc.dealUrl || this.getPlatformSearchUrl(doc.platform, doc.title),
     };
   }
 }

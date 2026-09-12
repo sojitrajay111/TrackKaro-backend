@@ -58,6 +58,9 @@ export class Deal {
 
   @Prop()
   targetPriceMinor?: number;
+
+  @Prop()
+  dealUrl?: string;
 }
 
 export const DealSchema = SchemaFactory.createForClass(Deal);
