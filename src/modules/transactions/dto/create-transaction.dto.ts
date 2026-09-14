@@ -50,5 +50,9 @@ export class CreateTransactionDto {
 
   @IsOptional()
   @IsString()
+  scope?: string;
+
+  @IsOptional()
+  @IsString()
   notes?: string;
 }

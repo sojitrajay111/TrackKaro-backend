@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { FilterQuery, Model } from 'mongoose';
+import { FilterQuery, Model, Types } from 'mongoose';
 
 import { toMajorUnits, toMinorUnits } from '@/common/money/money.util';
 import { BudgetsService } from '@/modules/budgets/budgets.service';
@@ -18,6 +18,7 @@ export interface PublicTransaction {
   category: string;
   date: string;
   paymentMethod: Transaction['paymentMethod'];
+  scope?: string;
   people?: string[];
   notes?: string;
 }
@@ -37,17 +38,22 @@ export class TransactionsService {
   ) {}
 
   async create(userId: string, dto: CreateTransactionDto): Promise<PublicTransaction> {
+    if (!userId) {
+      throw new UnauthorizedException('User authentication required');
+    }
     const amountMinor = toMinorUnits(dto.amount);
 
     // Threshold must be checked against spend *before* this transaction exists — checkThreshold
     // sums all persisted expenses in the category and adds `amountMinor` itself, so creating
     // the transaction first would double-count it.
     if (dto.type === 'expense') {
-      await this.budgetsService.checkThreshold(userId, dto.category, amountMinor);
+      void this.budgetsService.checkThreshold(userId, dto.category, amountMinor).catch(() => {
+        // Non-blocking background threshold check
+      });
     }
 
     const doc = await this.transactionModel.create({
-      userId,
+      userId: new Types.ObjectId(userId),
       title: dto.title,
       merchant: dto.merchant,
       amountMinor,
@@ -55,6 +61,7 @@ export class TransactionsService {
       category: dto.category,
       date: dto.date,
       paymentMethod: dto.paymentMethod,
+      scope: dto.scope || 'Personal',
       people: dto.people,
       notes: dto.notes,
     });
@@ -63,7 +70,10 @@ export class TransactionsService {
   }
 
   async findAll(userId: string, query: QueryTransactionsDto): Promise<PaginatedTransactions> {
-    const filter: FilterQuery<TransactionDocument> = { userId };
+    if (!userId) {
+      throw new UnauthorizedException('User authentication required');
+    }
+    const filter: FilterQuery<TransactionDocument> = { userId: new Types.ObjectId(userId) };
     if (query.category) filter.category = query.category;
     if (query.type) filter.type = query.type;
     if (query.from || query.to) {
@@ -89,12 +99,18 @@ export class TransactionsService {
   }
 
   async findOne(userId: string, id: string): Promise<PublicTransaction> {
-    const doc = await this.transactionModel.findOne({ _id: id, userId }).exec();
+    if (!userId) {
+      throw new UnauthorizedException('User authentication required');
+    }
+    const doc = await this.transactionModel.findOne({ _id: new Types.ObjectId(id), userId: new Types.ObjectId(userId) }).exec();
     if (!doc) throw new NotFoundException('Transaction not found');
     return this.toPublic(doc);
   }
 
   async update(userId: string, id: string, dto: UpdateTransactionDto): Promise<PublicTransaction> {
+    if (!userId) {
+      throw new UnauthorizedException('User authentication required');
+    }
     const patch: Record<string, unknown> = { ...dto };
     if (dto.amount !== undefined) {
       patch.amountMinor = toMinorUnits(dto.amount);
@@ -102,19 +118,25 @@ export class TransactionsService {
     }
 
     const doc = await this.transactionModel
-      .findOneAndUpdate({ _id: id, userId }, patch, { new: true })
+      .findOneAndUpdate({ _id: new Types.ObjectId(id), userId: new Types.ObjectId(userId) }, patch, { new: true })
       .exec();
     if (!doc) throw new NotFoundException('Transaction not found');
     return this.toPublic(doc);
   }
 
   async remove(userId: string, id: string): Promise<void> {
-    const result = await this.transactionModel.deleteOne({ _id: id, userId }).exec();
+    if (!userId) {
+      throw new UnauthorizedException('User authentication required');
+    }
+    const result = await this.transactionModel.deleteOne({ _id: new Types.ObjectId(id), userId: new Types.ObjectId(userId) }).exec();
     if (result.deletedCount === 0) throw new NotFoundException('Transaction not found');
   }
 
   async deleteAllForUser(userId: string): Promise<void> {
-    await this.transactionModel.deleteMany({ userId }).exec();
+    if (!userId) {
+      throw new UnauthorizedException('User authentication required');
+    }
+    await this.transactionModel.deleteMany({ userId: new Types.ObjectId(userId) }).exec();
   }
 
   private toPublic(doc: TransactionDocument): PublicTransaction {
@@ -127,6 +149,7 @@ export class TransactionsService {
       category: doc.category,
       date: doc.date,
       paymentMethod: doc.paymentMethod,
+      scope: (doc as any).scope || 'Personal',
       people: doc.people,
       notes: doc.notes,
     };

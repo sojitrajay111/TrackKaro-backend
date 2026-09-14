@@ -1,8 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { CATEGORY_NAMES, CategoryName } from '@/common/constants/categories';
 import { formatINR } from '@/common/money/money.util';
 import { DealsService } from '@/modules/deals/deals.service';
+import { KhataService } from '@/modules/khata/khata.service';
 import { RemindersService } from '@/modules/reminders/reminders.service';
 import { SavingsService } from '@/modules/savings/savings.service';
 import { SubscriptionsService } from '@/modules/subscriptions/subscriptions.service';
@@ -24,6 +26,19 @@ export interface ScannedBillResult {
   date: string;
 }
 
+export interface SmartParseResult {
+  transcript: string;
+  amount: number;
+  title: string;
+  category: CategoryName;
+  type: 'expense' | 'income' | 'gave' | 'took';
+  date: string;
+  personName?: string;
+  notes?: string;
+  paymentMethod?: string;
+  savedRecord?: unknown;
+}
+
 const TOP_CATEGORY_COUNT = 4;
 const ALL_TRANSACTIONS_LIMIT = 1000;
 
@@ -34,6 +49,7 @@ export class AssistantService {
   constructor(
     private readonly configService: ConfigService,
     private readonly transactionsService: TransactionsService,
+    private readonly khataService: KhataService,
     private readonly dealsService: DealsService,
     private readonly remindersService: RemindersService,
     private readonly subscriptionsService: SubscriptionsService,
@@ -96,6 +112,192 @@ export class AssistantService {
       category: 'Other',
       date: new Date().toISOString().split('T')[0],
     };
+  }
+
+  /**
+   * Processes voice/text input with AI, structuring it into an expense or khata entry.
+   * If autoSave is true, it automatically persists the record in the database and returns it.
+   */
+  async parseAndProcessVoice(
+    userId: string,
+    text: string,
+    mode: 'expense' | 'khata' = 'expense',
+    autoSave = false,
+  ): Promise<SmartParseResult> {
+    const geminiKey = this.configService.get<string>('geminiApiKey') || process.env.GEMINI_API_KEY;
+    let parsed: SmartParseResult | null = null;
+
+    if (geminiKey) {
+      try {
+        parsed = await this.callGeminiSmartParse(text, mode, geminiKey);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Gemini smart parse failed, falling back to local heuristic: ${message}`);
+      }
+    }
+
+    if (!parsed) {
+      parsed = this.fallbackLocalParse(text, mode);
+    }
+
+    if (autoSave && userId && parsed.amount > 0) {
+      try {
+        if (mode === 'expense') {
+          const created = await this.transactionsService.create(userId, {
+            title: parsed.title,
+            merchant: parsed.title,
+            amount: parsed.amount,
+            type: parsed.type === 'income' ? 'income' : 'expense',
+            category: parsed.category,
+            date: parsed.date,
+            paymentMethod: 'UPI',
+            notes: parsed.notes || 'TrackKaro AI Voice Log',
+          });
+          parsed.savedRecord = created;
+        } else {
+          const createdKhata = await this.khataService.create(userId, {
+            personName: parsed.personName || parsed.title || 'Contact',
+            amount: parsed.amount,
+            type: parsed.type === 'took' ? 'took' : 'gave',
+            date: parsed.date,
+            notes: parsed.notes || undefined,
+          });
+          parsed.savedRecord = createdKhata;
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.error(`Failed to auto-save parsed transaction: ${message}`);
+      }
+    }
+
+    return parsed;
+  }
+
+  private async callGeminiSmartParse(
+    text: string,
+    mode: 'expense' | 'khata',
+    apiKey: string,
+  ): Promise<SmartParseResult | null> {
+    const currentYear = new Date().getFullYear();
+    const prompt =
+      mode === 'expense'
+        ? `You are an AI financial expense assistant. Parse this Indian voice/text transcript (Gujarati, Hindi, Hinglish, or English): "${text}".
+Return strict JSON with:
+{
+  "transcript": "${text}",
+  "amount": positive number,
+  "merchant": "Vendor, app, or item name (e.g. Zepto, Swiggy, Fuel, Amazon)",
+  "category": "Food" | "Shopping" | "Bills" | "Entertainment" | "Travel" | "Health" | "Groceries" | "Fuel" | "Subscriptions" | "Rent" | "EMI" | "Other",
+  "date": "YYYY-MM-DD" (calculate relative dates or explicit dates like "1 સપ્ટેમ્બરે", "2nd aug", "yesterday", "kal", default to ${new Date().toISOString().split('T')[0]}),
+  "type": "expense" | "income"
+}
+RULES:
+- If groceries, grocery, kirana, sabzi, vegetables, milk, doodh, ration are mentioned, category MUST be "Groceries" (even if ordered from Swiggy or Amazon).
+- If petrol, diesel, fuel, CNG, category is "Fuel".
+- If restaurant, lunch, dinner, cafe, chai, category is "Food".`
+        : `You are an AI Khata (Udhar / Lending) ledger assistant. Parse this Indian colloquial transcript (Gujarati, Hindi, Hinglish, or English): "${text}".
+Return strict JSON with:
+{
+  "transcript": "${text}",
+  "amount": positive number,
+  "personName": "Name of contact/person (e.g. Ramesh bhai, Priya, Suresh)",
+  "type": "gave" (if money paid / lent / given) or "took" (if money taken / borrowed / received),
+  "notes": "Purpose or item reason (e.g. doodh, lunch, shopping)",
+  "date": "YYYY-MM-DD" (calculate relative dates, default to ${new Date().toISOString().split('T')[0]})
+}`;
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType: 'application/json',
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text();
+      throw new Error(`Gemini HTTP ${res.status}: ${errBody}`);
+    }
+
+    const data = await res.json();
+    const rawJson = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!rawJson) return null;
+
+    try {
+      const parsed = JSON.parse(rawJson);
+      const todayIso = new Date().toISOString().split('T')[0];
+      const date = parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : todayIso;
+
+      if (mode === 'expense') {
+        let cat: CategoryName = 'Other';
+        if (CATEGORY_NAMES.includes(parsed.category)) {
+          cat = parsed.category as CategoryName;
+        }
+        return {
+          transcript: parsed.transcript || text,
+          amount: Math.abs(Number(parsed.amount)) || 0,
+          title: String(parsed.merchant || 'Expense').trim(),
+          category: cat,
+          type: parsed.type === 'income' ? 'income' : 'expense',
+          date,
+        };
+      } else {
+        return {
+          transcript: parsed.transcript || text,
+          amount: Math.abs(Number(parsed.amount)) || 0,
+          title: String(parsed.personName || 'Contact').trim(),
+          personName: String(parsed.personName || 'Contact').trim(),
+          category: 'Other',
+          type: parsed.type === 'took' ? 'took' : 'gave',
+          notes: parsed.notes ? String(parsed.notes).trim() : undefined,
+          date,
+        };
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  private fallbackLocalParse(text: string, mode: 'expense' | 'khata'): SmartParseResult {
+    const today = new Date().toISOString().split('T')[0];
+    // Simple regex extraction for amount
+    const amtMatch = text.match(/\b(\d+(?:[.,]\d+)?)\b/);
+    const amount = amtMatch ? parseFloat(amtMatch[1].replace(/,/g, '')) : 0;
+    const lower = text.toLowerCase();
+
+    if (mode === 'expense') {
+      let category: CategoryName = 'Other';
+      if (/grocer|kirana|sabzi|vegetable|doodh|milk|ration/i.test(lower)) category = 'Groceries';
+      else if (/petrol|diesel|fuel/i.test(lower)) category = 'Fuel';
+      else if (/chai|tea|coffee|food|lunch|dinner|swiggy|zomato/i.test(lower)) category = 'Food';
+      else if (/medicine|doctor|health/i.test(lower)) category = 'Health';
+
+      const type = /salary|income|credit|received/i.test(lower) ? 'income' : 'expense';
+      return {
+        transcript: text,
+        amount,
+        title: /zepto/i.test(lower) ? 'Zepto' : /swiggy/i.test(lower) ? 'Swiggy' : 'Expense',
+        category,
+        type,
+        date: today,
+      };
+    } else {
+      const type = /took|lidha|received|borrow/i.test(lower) ? 'took' : 'gave';
+      return {
+        transcript: text,
+        amount,
+        title: 'Contact',
+        personName: 'Contact',
+        category: 'Other',
+        type,
+        date: today,
+      };
+    }
   }
 
   /**

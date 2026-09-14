@@ -38,6 +38,9 @@ export class Transaction {
   @Prop({ type: [String] })
   people?: string[];
 
+  @Prop({ type: String, enum: ['Personal', 'Work', 'Family'], default: 'Personal' })
+  scope?: string;
+
   @Prop()
   notes?: string;
 }

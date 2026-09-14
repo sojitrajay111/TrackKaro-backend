@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { DealsModule } from '@/modules/deals/deals.module';
+import { KhataModule } from '@/modules/khata/khata.module';
 import { RemindersModule } from '@/modules/reminders/reminders.module';
 import { SavingsModule } from '@/modules/savings/savings.module';
 import { SubscriptionsModule } from '@/modules/subscriptions/subscriptions.module';
@@ -9,7 +10,7 @@ import { AssistantController } from './assistant.controller';
 import { AssistantService } from './assistant.service';
 
 @Module({
-  imports: [TransactionsModule, DealsModule, RemindersModule, SubscriptionsModule, SavingsModule],
+  imports: [TransactionsModule, KhataModule, DealsModule, RemindersModule, SubscriptionsModule, SavingsModule],
   controllers: [AssistantController],
   providers: [AssistantService],
 })
