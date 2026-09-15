@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 
 import { CurrentUser, CurrentUserPayload } from '@/common/decorators/current-user.decorator';
+import { ParseObjectIdPipe } from '@/common/pipes/parse-object-id.pipe';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { QueryTransactionsDto } from './dto/query-transactions.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
@@ -34,7 +35,7 @@ export class TransactionsController {
   @Patch(':id')
   update(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id') id: string,
+    @Param('id', ParseObjectIdPipe) id: string,
     @Body() dto: UpdateTransactionDto,
   ) {
     return this.transactionsService.update(user.userId, id, dto);
@@ -42,7 +43,10 @@ export class TransactionsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async remove(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+  async remove(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ) {
     await this.transactionsService.remove(user.userId, id);
   }
 }

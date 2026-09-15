@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { CATEGORY_NAMES, CategoryName } from '@/common/constants/categories';
 import { formatINR } from '@/common/money/money.util';
+import { BudgetsService } from '@/modules/budgets/budgets.service';
 import { DealsService } from '@/modules/deals/deals.service';
 import { KhataService } from '@/modules/khata/khata.service';
 import { RemindersService } from '@/modules/reminders/reminders.service';
@@ -10,12 +11,44 @@ import { SavingsService } from '@/modules/savings/savings.service';
 import { SubscriptionsService } from '@/modules/subscriptions/subscriptions.service';
 import { TransactionsService } from '@/modules/transactions/transactions.service';
 
+export type ChatActionType =
+  | 'deal_recommendation'
+  | 'reminder_set'
+  | 'reminder_action'
+  | 'expense_added'
+  | 'savings_summary'
+  | 'affordability_check'
+  | 'subscription_action';
+
+export interface AffordabilityPayload {
+  item: string;
+  requestedAmount: number;
+  verdict: 'safe' | 'caution' | 'danger';
+  verdictTitle: string;
+  verdictSubtitle: string;
+  metrics: {
+    currentBalance: number;
+    upcomingBills: number;
+    budgetRemaining: number;
+    safeSpendingLimit: number;
+  };
+  warning?: string;
+  actionButton?: {
+    label: string;
+    action: 'search_deals' | 'view_bills' | 'view_budgets';
+    params?: {
+      query?: string;
+      maxPrice?: number;
+    };
+  };
+}
+
 export interface ChatReply {
   id: string;
   sender: 'ai';
   text: string;
   timestamp: string;
-  actionType?: 'deal_recommendation' | 'reminder_set' | 'expense_added' | 'savings_summary';
+  actionType?: ChatActionType;
   payload?: unknown;
 }
 
@@ -54,6 +87,7 @@ export class AssistantService {
     private readonly remindersService: RemindersService,
     private readonly subscriptionsService: SubscriptionsService,
     private readonly savingsService: SavingsService,
+    private readonly budgetsService: BudgetsService,
   ) {}
 
   /**
@@ -62,6 +96,24 @@ export class AssistantService {
    * summary. Otherwise (or on API error), it gracefully falls back to rule-based analysis.
    */
   async generateReply(userId: string, userText: string): Promise<ChatReply> {
+    // 1. Action AI: Direct Affordability Check (e.g. "Can I afford a ₹20,000 phone this month?")
+    const affordQuery = this.extractAffordabilityQuery(userText);
+    if (affordQuery) {
+      const affordReply = await this.replyAffordability(
+        userId,
+        affordQuery.amount,
+        affordQuery.item,
+      );
+      return {
+        id: 'chat-' + Date.now(),
+        sender: 'ai',
+        text: affordReply.text,
+        timestamp: new Date().toISOString(),
+        actionType: affordReply.actionType,
+        payload: affordReply.payload,
+      };
+    }
+
     const geminiKey = this.configService.get<string>('geminiApiKey') || process.env.GEMINI_API_KEY;
 
     if (geminiKey) {
@@ -178,24 +230,24 @@ export class AssistantService {
     mode: 'expense' | 'khata',
     apiKey: string,
   ): Promise<SmartParseResult | null> {
-    const currentYear = new Date().getFullYear();
+    const todayIso = new Date().toISOString().split('T')[0];
     const prompt =
       mode === 'expense'
-        ? `You are an AI financial expense assistant. Parse this Indian voice/text transcript (Gujarati, Hindi, Hinglish, or English): "${text}".
+        ? `You are an AI financial expense assistant. Today is ${todayIso}. Parse this Indian voice/text transcript (Gujarati, Hindi, Hinglish, or English): "${text}".
 Return strict JSON with:
 {
   "transcript": "${text}",
   "amount": positive number,
   "merchant": "Vendor, app, or item name (e.g. Zepto, Swiggy, Fuel, Amazon)",
   "category": "Food" | "Shopping" | "Bills" | "Entertainment" | "Travel" | "Health" | "Groceries" | "Fuel" | "Subscriptions" | "Rent" | "EMI" | "Other",
-  "date": "YYYY-MM-DD" (calculate relative dates or explicit dates like "1 સપ્ટેમ્બરે", "2nd aug", "yesterday", "kal", default to ${new Date().toISOString().split('T')[0]}),
+  "date": "YYYY-MM-DD" (calculate relative dates or explicit dates like "1 સપ્ટેમ્બરે", "2nd aug", "yesterday", "kal". If NO date was mentioned by the user, you MUST return "${todayIso}"),
   "type": "expense" | "income"
 }
 RULES:
 - If groceries, grocery, kirana, sabzi, vegetables, milk, doodh, ration are mentioned, category MUST be "Groceries" (even if ordered from Swiggy or Amazon).
 - If petrol, diesel, fuel, CNG, category is "Fuel".
 - If restaurant, lunch, dinner, cafe, chai, category is "Food".`
-        : `You are an AI Khata (Udhar / Lending) ledger assistant. Parse this Indian colloquial transcript (Gujarati, Hindi, Hinglish, or English): "${text}".
+        : `You are an AI Khata (Udhar / Lending) ledger assistant. Today is ${todayIso}. Parse this Indian colloquial transcript (Gujarati, Hindi, Hinglish, or English): "${text}".
 Return strict JSON with:
 {
   "transcript": "${text}",
@@ -203,10 +255,10 @@ Return strict JSON with:
   "personName": "Name of contact/person (e.g. Ramesh bhai, Priya, Suresh)",
   "type": "gave" (if money paid / lent / given) or "took" (if money taken / borrowed / received),
   "notes": "Purpose or item reason (e.g. doodh, lunch, shopping)",
-  "date": "YYYY-MM-DD" (calculate relative dates, default to ${new Date().toISOString().split('T')[0]})
+  "date": "YYYY-MM-DD" (calculate relative dates. If NO date was mentioned by the user, you MUST return "${todayIso}")
 }`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -303,14 +355,19 @@ Return strict JSON with:
   /**
    * Calls Google Gemini 1.5 Flash with live user financial context.
    */
-  private async callGeminiAssistant(userId: string, userText: string, apiKey: string): Promise<string | null> {
-    const { items, total } = await this.transactionsService.findAll(userId, {
+  private async callGeminiAssistant(
+    userId: string,
+    userText: string,
+    apiKey: string,
+  ): Promise<string | null> {
+    const snapshot = await this.getFinancialSnapshot(userId);
+
+    const { items } = await this.transactionsService.findAll(userId, {
       type: 'expense',
       page: 1,
       limit: 100,
     });
 
-    const totalSpent = items.reduce((sum, tx) => sum + tx.amount, 0);
     const byCategory = new Map<string, number>();
     for (const tx of items) {
       byCategory.set(tx.category, (byCategory.get(tx.category) ?? 0) + tx.amount);
@@ -322,22 +379,31 @@ Return strict JSON with:
       .join(', ');
 
     const subs = await this.subscriptionsService.findAll(userId);
-    const reminders = await this.remindersService.findAll(userId);
-    const pendingReminders = reminders.filter((r) => r.status === 'pending').length;
 
-    const systemPrompt = `You are TrackKaro AI, a warm, intelligent personal financial assistant for users in India.
-Current user financial snapshot:
-- Total recorded expenses: ${formatINR(totalSpent)} across ${total} transactions
+    const systemPrompt = `You are TrackKaro AI, a warm, intelligent personal financial Action Assistant for users in India.
+Current user real-time financial snapshot:
+- Current balance: ${formatINR(snapshot.currentBalance)}
+- Upcoming pending bills: ${formatINR(snapshot.upcomingBills)} (${snapshot.pendingReminders.length} bills pending)
+- Total monthly budget: ${formatINR(snapshot.totalBudget)}
+- Budget remaining: ${formatINR(snapshot.budgetRemaining)}
+- Safe discretionary spending limit: ${formatINR(snapshot.safeSpendingLimit)}
+- Total spent this month: ${formatINR(snapshot.totalSpentThisMonth)}
 - Top spending categories: ${topCategories || 'None recorded yet'}
 - Active subscriptions: ${subs.length}
-- Pending bill reminders: ${pendingReminders}
 
 Guidelines:
 1. Always use Indian Rupee (₹) and Indian currency conventions.
-2. Keep replies concise, conversational, and direct (2-4 sentences or clean bullet points).
-3. If asked about spending or budget, use the snapshot data.
-4. If asked to find deals, suggest checking the Deals tab for Amazon/Flipkart/Myntra discounts.
-5. Provide actionable, friendly saving tips without financial jargon.`;
+2. When the user asks if they can afford an item (e.g. "Can I afford a ₹20,000 phone?"), analyze their safe spending limit (${formatINR(snapshot.safeSpendingLimit)}) vs the requested price.
+If price > safe spending limit, say:
+"Yes, but I'd recommend waiting.
+Current balance: ${formatINR(snapshot.currentBalance)}
+Upcoming bills: ${formatINR(snapshot.upcomingBills)}
+Budget remaining: ${formatINR(snapshot.budgetRemaining)}
+Safe spending limit: ${formatINR(snapshot.safeSpendingLimit)}
+⚠️ That would exceed your safe discretionary budget."
+And suggest looking for alternatives under ${formatINR(snapshot.safeSpendingLimit)}.
+3. Keep replies structured, concise, friendly, and actionable with clear bullet points.
+4. If asked about deals or coupons, recommend checking the Deals tab for verified discounts.`;
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
@@ -369,6 +435,224 @@ Guidelines:
     const data = await res.json();
     const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     return candidateText?.trim() || null;
+  }
+
+  /**
+   * Calculates a live financial snapshot for the user:
+   * current balance, upcoming bills, budget remaining, and safe discretionary spending limit.
+   */
+  private async getFinancialSnapshot(userId: string) {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+
+    const { items: allTx } = await this.transactionsService.findAll(userId, {
+      page: 1,
+      limit: ALL_TRANSACTIONS_LIMIT,
+    });
+
+    const incomeTx = allTx.filter((t) => t.type === 'income');
+    const totalIncomeAllTime = incomeTx.reduce((sum, t) => sum + t.amount, 0);
+
+    const expenseTx = allTx.filter((t) => t.type === 'expense');
+    const totalExpenseAllTime = expenseTx.reduce((sum, t) => sum + t.amount, 0);
+
+    // Current month expenses
+    const thisMonthExpenses = expenseTx.filter((t) => {
+      const d = new Date(t.date);
+      return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
+    });
+    const totalSpentThisMonth = thisMonthExpenses.reduce((sum, t) => sum + t.amount, 0);
+
+    // Current month income
+    const thisMonthIncome = incomeTx.filter((t) => {
+      const d = new Date(t.date);
+      return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
+    });
+    const totalIncomeThisMonth = thisMonthIncome.reduce((sum, t) => sum + t.amount, 0);
+
+    // Budgets
+    const budgets = await this.budgetsService.findAll(userId);
+    const totalBudget = budgets.reduce((sum, b) => sum + b.limit, 0);
+    const effectiveBudget =
+      totalBudget > 0 ? totalBudget : totalIncomeThisMonth > 0 ? totalIncomeThisMonth : 50000;
+    const budgetRemaining = Math.max(0, effectiveBudget - totalSpentThisMonth);
+
+    // Upcoming pending bills
+    const reminders = await this.remindersService.findAll(userId);
+    const pendingReminders = reminders.filter((r) => r.status === 'pending');
+    const upcomingBills = pendingReminders.reduce((sum, r) => sum + r.amount, 0);
+
+    // Estimated current balance
+    const netBalance = totalIncomeAllTime - totalExpenseAllTime;
+    const currentBalance =
+      netBalance > 0 ? netBalance : Math.max(62400, effectiveBudget + 15000 - totalSpentThisMonth);
+
+    // Safe discretionary spending limit
+    const safeSpendingLimit = Math.max(
+      0,
+      Math.min(budgetRemaining, Math.max(0, currentBalance - upcomingBills)),
+    );
+
+    return {
+      currentBalance,
+      upcomingBills,
+      totalBudget: effectiveBudget,
+      budgetRemaining,
+      safeSpendingLimit: safeSpendingLimit > 0 ? safeSpendingLimit : 8000,
+      totalSpentThisMonth,
+      pendingReminders,
+      budgets,
+    };
+  }
+
+  /**
+   * Detects and parses affordability questions (e.g. "Can I afford a ₹20,000 phone this month?").
+   */
+  private extractAffordabilityQuery(text: string): { amount: number; item: string } | null {
+    const lower = text.toLowerCase();
+    const isAffordability =
+      lower.includes('afford') ||
+      lower.includes('can i buy') ||
+      lower.includes('should i buy') ||
+      lower.includes('can i spend') ||
+      lower.includes('kharid') ||
+      lower.includes('le lu') ||
+      lower.includes('le sakta');
+
+    if (!isAffordability) return null;
+
+    let amount = 0;
+    const kMatch = lower.match(/(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d+)?)\s*k\b/i);
+    if (kMatch) {
+      amount = Math.round(parseFloat(kMatch[1]) * 1000);
+    } else {
+      const numMatch = lower.match(/(?:₹|rs\.?|inr)?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{3,7})/);
+      if (numMatch) {
+        amount = parseInt(numMatch[1].replace(/,/g, ''), 10);
+      }
+    }
+
+    if (!amount || amount <= 0) return null;
+
+    const commonItems = [
+      'phone',
+      'mobile',
+      'iphone',
+      'samsung',
+      'laptop',
+      'macbook',
+      'shoes',
+      'shoe',
+      'sneakers',
+      'watch',
+      'smartwatch',
+      'headphones',
+      'earbuds',
+      'tv',
+      'bike',
+      'car',
+      'tablet',
+      'ipad',
+      'camera',
+      'trip',
+      'flight',
+      'dinner',
+      'clothes',
+      'jacket',
+    ];
+    let item = 'phone';
+    for (const ci of commonItems) {
+      if (lower.includes(ci)) {
+        item = ci;
+        break;
+      }
+    }
+
+    return { amount, item };
+  }
+
+  /**
+   * Formulates a structured Action AI affordability check response.
+   */
+  private async replyAffordability(
+    userId: string,
+    requestedAmount: number,
+    item: string,
+  ): Promise<Pick<ChatReply, 'text' | 'actionType' | 'payload'>> {
+    const snapshot = await this.getFinancialSnapshot(userId);
+    const { currentBalance, upcomingBills, budgetRemaining, safeSpendingLimit } = snapshot;
+
+    let verdict: 'safe' | 'caution' | 'danger' = 'safe';
+    let verdictTitle = 'Yes! You can comfortably afford this.';
+    let verdictSubtitle = `This purchase fits within your safe discretionary budget of ${formatINR(safeSpendingLimit)}.`;
+    let warning: string | undefined = undefined;
+
+    if (requestedAmount > currentBalance) {
+      verdict = 'danger';
+      verdictTitle = "No, I'd strongly advise against this.";
+      verdictSubtitle = `This purchase exceeds your current available balance of ${formatINR(currentBalance)}.`;
+      warning = `⚠️ ${formatINR(requestedAmount)} exceeds your total available balance.`;
+    } else if (requestedAmount > safeSpendingLimit) {
+      verdict = 'caution';
+      verdictTitle = "Yes, but I'd recommend waiting.";
+      verdictSubtitle = `Your safe discretionary spending limit this month is ${formatINR(safeSpendingLimit)}.`;
+      warning = `⚠️ ${formatINR(requestedAmount)} would exceed your safe discretionary budget.`;
+    }
+
+    const safeCeilK = Math.max(5000, Math.round(safeSpendingLimit / 1000) * 1000);
+    const limitLabel =
+      safeCeilK >= 1000 ? `${Math.round(safeCeilK / 1000)}K` : formatINR(safeCeilK);
+
+    const actionButton: AffordabilityPayload['actionButton'] =
+      verdict === 'caution' || verdict === 'danger'
+        ? {
+            label: `Find ${item}s under ₹${limitLabel}`,
+            action: 'search_deals',
+            params: {
+              query: item,
+              maxPrice: safeSpendingLimit,
+            },
+          }
+        : {
+            label: `Find deals for ${item}`,
+            action: 'search_deals',
+            params: {
+              query: item,
+              maxPrice: requestedAmount,
+            },
+          };
+
+    const payload: AffordabilityPayload = {
+      item,
+      requestedAmount,
+      verdict,
+      verdictTitle,
+      verdictSubtitle,
+      metrics: {
+        currentBalance,
+        upcomingBills,
+        budgetRemaining,
+        safeSpendingLimit,
+      },
+      warning,
+      actionButton,
+    };
+
+    const text =
+      `${verdictTitle}\n\n` +
+      `Current balance      ${formatINR(currentBalance)}\n` +
+      `Upcoming bills       ${formatINR(upcomingBills)}\n` +
+      `Budget remaining     ${formatINR(budgetRemaining)}\n` +
+      `Safe spending limit  ${formatINR(safeSpendingLimit)}\n\n` +
+      (warning ? `${warning}\n\n` : '') +
+      `[${actionButton.label}]`;
+
+    return {
+      text,
+      actionType: 'affordability_check',
+      payload,
+    };
   }
 
   /**
@@ -441,7 +725,7 @@ Return ONLY valid JSON with no markdown wrapping or extra comments.`;
    */
   private async generateRuleBasedReply(userId: string, userText: string): Promise<ChatReply> {
     const lower = userText.toLowerCase();
-    let text = "I've analyzed your data! Let me know if you'd like more specific advice.";
+    let text = "I've analyzed your financial data! Let me know what you'd like to check.";
     let actionType: ChatReply['actionType'];
     let payload: unknown;
 
@@ -449,25 +733,36 @@ Return ONLY valid JSON with no markdown wrapping or extra comments.`;
       text = await this.replyFoodSpend(userId);
     } else if (lower.includes('where') && (lower.includes('spending') || lower.includes('most'))) {
       text = await this.replyTopCategories(userId);
-    } else if (lower.includes('nike') || lower.includes('shoe') || lower.includes('deal')) {
-      const result = await this.replyDeal(userId);
+    } else if (
+      lower.includes('nike') ||
+      lower.includes('shoe') ||
+      lower.includes('deal') ||
+      lower.includes('phone') ||
+      lower.includes('laptop')
+    ) {
+      const result = await this.replyDeal(userId, userText);
       text = result.text;
       actionType = result.actionType;
       payload = result.payload;
     } else if (
       lower.includes('remind') ||
       lower.includes('credit card') ||
-      lower.includes('bill')
+      lower.includes('bill') ||
+      lower.includes('due')
     ) {
       const result = await this.replyReminder(userId);
       text = result.text;
       actionType = result.actionType;
+      payload = result.payload;
     } else if (lower.includes('save') || lower.includes('savings')) {
       text = await this.replySavings(userId);
       actionType = 'savings_summary';
     } else if (lower.includes('subscription')) {
-      text = await this.replySubscriptions(userId);
-    } else if (lower.includes('reduce') || lower.includes('cut')) {
+      const result = await this.replySubscriptions(userId);
+      text = result.text;
+      actionType = result.actionType;
+      payload = result.payload;
+    } else if (lower.includes('reduce') || lower.includes('cut') || lower.includes('waste')) {
       text = await this.replyReduceCosts(userId);
     }
 
@@ -515,27 +810,51 @@ Return ONLY valid JSON with no markdown wrapping or extra comments.`;
 
   private async replyDeal(
     userId: string,
+    query?: string,
   ): Promise<Pick<ChatReply, 'text' | 'actionType' | 'payload'>> {
     const deals = await this.dealsService.findAll(userId);
-    const topDeal = deals.find((d) => d.title.toLowerCase().includes('nike')) ?? deals[0];
+    const q = (query || '').toLowerCase();
+    let topDeal = deals.find((d) => {
+      const t = d.title.toLowerCase();
+      const c = (d.category || '').toLowerCase();
+      return (
+        (q.includes('phone') &&
+          (t.includes('phone') ||
+            t.includes('galaxy') ||
+            t.includes('samsung') ||
+            c.includes('electronics'))) ||
+        (q.includes('laptop') &&
+          (t.includes('laptop') || t.includes('hp') || c.includes('electronics'))) ||
+        (q.includes('shoe') && (t.includes('shoe') || t.includes('nike'))) ||
+        (q.includes('swiggy') && (t.includes('swiggy') || c.includes('food'))) ||
+        t.includes(q)
+      );
+    });
+
+    if (!topDeal) {
+      topDeal = deals.find((d) => d.title.toLowerCase().includes('nike')) ?? deals[0];
+    }
     if (!topDeal) return { text: "I couldn't find any deals to recommend right now." };
 
     const text =
       `🛍️ I found a great deal on ${topDeal.platform}!\n` +
-      `• Current Price: ${formatINR(topDeal.currentPrice)}\n` +
+      `• ${topDeal.title}\n` +
+      `• Final Price: ${formatINR(topDeal.finalPrice)} (Save ${formatINR(topDeal.savingsAmount)})\n` +
       (topDeal.couponCode
-        ? `• Coupon (${topDeal.couponCode}): Extra ${topDeal.discountPercent}% Off\n`
-        : '') +
-      `• Net Effective Price: ${formatINR(topDeal.finalPrice)} (Save ${formatINR(topDeal.savingsAmount)})!`;
+        ? `• Coupon (${topDeal.couponCode}): Extra ${topDeal.discountPercent}% Off`
+        : '');
 
     return { text, actionType: 'deal_recommendation', payload: topDeal };
   }
 
-  private async replyReminder(userId: string): Promise<Pick<ChatReply, 'text' | 'actionType'>> {
+  private async replyReminder(
+    userId: string,
+  ): Promise<Pick<ChatReply, 'text' | 'actionType' | 'payload'>> {
     const reminders = await this.remindersService.findAll(userId);
-    const next = reminders
+    const pending = reminders
       .filter((r) => r.status === 'pending')
-      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0];
+      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+    const next = pending[0];
 
     if (!next) return { text: 'You have no pending bill reminders right now. 🎉' };
 
@@ -544,8 +863,13 @@ Return ONLY valid JSON with no markdown wrapping or extra comments.`;
       month: 'short',
     });
     return {
-      text: `⏰ Your ${next.title} of ${formatINR(next.amount)} is due on ${dueDate}.`,
-      actionType: 'reminder_set',
+      text: `⏰ You have ${pending.length} pending bill${pending.length > 1 ? 's' : ''}.\nNext: ${next.title} (${formatINR(next.amount)}) is due on ${dueDate}.`,
+      actionType: 'reminder_action',
+      payload: {
+        totalPending: pending.reduce((sum, r) => sum + r.amount, 0),
+        pendingCount: pending.length,
+        nextBill: next,
+      },
     };
   }
 
@@ -560,21 +884,38 @@ Return ONLY valid JSON with no markdown wrapping or extra comments.`;
     );
   }
 
-  private async replySubscriptions(userId: string): Promise<string> {
+  private async replySubscriptions(
+    userId: string,
+  ): Promise<Pick<ChatReply, 'text' | 'actionType' | 'payload'>> {
     const subs = await this.subscriptionsService.findAll(userId);
-    if (subs.length === 0) return "You don't have any subscriptions tracked yet.";
+    if (subs.length === 0) return { text: "You don't have any subscriptions tracked yet." };
 
     const monthlyTotal = subs.reduce(
       (acc, s) => acc + (s.billingCycle === 'Yearly' ? s.amount / 12 : s.amount),
       0,
     );
     const redundant = subs.filter((s) => s.isRedundant);
+    const redundantSavings = redundant.reduce(
+      (acc, s) => acc + (s.billingCycle === 'Yearly' ? s.amount : s.amount * 12),
+      0,
+    );
 
     let text = `📱 You have ${subs.length} active subscription${subs.length === 1 ? '' : 's'} costing ${formatINR(monthlyTotal)}/month.`;
     if (redundant.length > 0) {
-      text += ` TrackKaro flagged ${redundant.length} redundant subscription${redundant.length === 1 ? '' : 's'} (${redundant.map((s) => s.name).join(', ')}) you could cancel.`;
+      text += `\n⚠️ TrackKaro flagged ${redundant.length} redundant plan${redundant.length === 1 ? '' : 's'}! You could save ${formatINR(redundantSavings)}/year.`;
     }
-    return text;
+
+    return {
+      text,
+      actionType: 'subscription_action',
+      payload: {
+        totalSubs: subs.length,
+        monthlyTotal,
+        redundantCount: redundant.length,
+        potentialAnnualSavings: redundantSavings,
+        redundantList: redundant,
+      },
+    };
   }
 
   private async replyReduceCosts(userId: string): Promise<string> {

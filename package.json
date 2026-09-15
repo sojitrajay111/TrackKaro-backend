@@ -4,6 +4,7 @@
   "private": true,
   "description": "TrackKaro API — NestJS + MongoDB backend",
   "scripts": {
+    "dev": "nest start --watch",
     "build": "nest build",
     "start": "nest start",
     "start:dev": "nest start --watch",

@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 
 import { CurrentUser, CurrentUserPayload } from '@/common/decorators/current-user.decorator';
+import { ParseObjectIdPipe } from '@/common/pipes/parse-object-id.pipe';
 import { DealsService } from './deals.service';
 import { TrackDealDto } from './dto/track-deal.dto';
 
@@ -21,7 +22,7 @@ export class DealsController {
   @Patch(':id/track')
   toggleTrack(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id') id: string,
+    @Param('id', ParseObjectIdPipe) id: string,
     @Body() dto: TrackDealDto,
   ) {
     return this.dealsService.toggleTrack(user.userId, id, dto.targetPrice);
@@ -30,7 +31,7 @@ export class DealsController {
   @Post(':id/simulate-drop')
   simulateDrop(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id') id: string,
+    @Param('id', ParseObjectIdPipe) id: string,
     @Body() dto: TrackDealDto,
   ) {
     return this.dealsService.simulateDrop(user.userId, id, dto.targetPrice);

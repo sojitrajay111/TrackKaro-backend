@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
 
 import { CurrentUser, CurrentUserPayload } from '@/common/decorators/current-user.decorator';
+import { ParseObjectIdPipe } from '@/common/pipes/parse-object-id.pipe';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { SubscriptionsService } from './subscriptions.service';
 
@@ -20,7 +21,10 @@ export class SubscriptionsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async remove(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+  async remove(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ) {
     await this.subscriptionsService.remove(user.userId, id);
   }
 }

@@ -22,6 +22,11 @@ export class AssistantController {
 
   @Post('smart-parse')
   smartParse(@CurrentUser() user: CurrentUserPayload, @Body() dto: SmartParseDto) {
-    return this.assistantService.parseAndProcessVoice(user.userId, dto.text, dto.mode, dto.autoSave);
+    return this.assistantService.parseAndProcessVoice(
+      user.userId,
+      dto.text,
+      dto.mode,
+      dto.autoSave,
+    );
   }
 }

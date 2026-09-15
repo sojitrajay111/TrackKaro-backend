@@ -102,7 +102,9 @@ export class TransactionsService {
     if (!userId) {
       throw new UnauthorizedException('User authentication required');
     }
-    const doc = await this.transactionModel.findOne({ _id: new Types.ObjectId(id), userId: new Types.ObjectId(userId) }).exec();
+    const doc = await this.transactionModel
+      .findOne({ _id: new Types.ObjectId(id), userId: new Types.ObjectId(userId) })
+      .exec();
     if (!doc) throw new NotFoundException('Transaction not found');
     return this.toPublic(doc);
   }
@@ -118,7 +120,11 @@ export class TransactionsService {
     }
 
     const doc = await this.transactionModel
-      .findOneAndUpdate({ _id: new Types.ObjectId(id), userId: new Types.ObjectId(userId) }, patch, { new: true })
+      .findOneAndUpdate(
+        { _id: new Types.ObjectId(id), userId: new Types.ObjectId(userId) },
+        patch,
+        { new: true },
+      )
       .exec();
     if (!doc) throw new NotFoundException('Transaction not found');
     return this.toPublic(doc);
@@ -128,7 +134,9 @@ export class TransactionsService {
     if (!userId) {
       throw new UnauthorizedException('User authentication required');
     }
-    const result = await this.transactionModel.deleteOne({ _id: new Types.ObjectId(id), userId: new Types.ObjectId(userId) }).exec();
+    const result = await this.transactionModel
+      .deleteOne({ _id: new Types.ObjectId(id), userId: new Types.ObjectId(userId) })
+      .exec();
     if (result.deletedCount === 0) throw new NotFoundException('Transaction not found');
   }
 

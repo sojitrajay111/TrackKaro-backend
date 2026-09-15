@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 
 import { CurrentUser, CurrentUserPayload } from '@/common/decorators/current-user.decorator';
+import { ParseObjectIdPipe } from '@/common/pipes/parse-object-id.pipe';
 import { CreateReminderDto } from './dto/create-reminder.dto';
 import { UpdateReminderDto } from './dto/update-reminder.dto';
 import { RemindersService } from './reminders.service';
@@ -32,7 +33,7 @@ export class RemindersController {
   @Patch(':id')
   update(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id') id: string,
+    @Param('id', ParseObjectIdPipe) id: string,
     @Body() dto: UpdateReminderDto,
   ) {
     return this.remindersService.update(user.userId, id, dto);
@@ -40,7 +41,10 @@ export class RemindersController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async remove(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+  async remove(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ) {
     await this.remindersService.remove(user.userId, id);
   }
 }

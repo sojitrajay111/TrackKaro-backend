@@ -1,8 +1,16 @@
+import * as dns from 'dns';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { INestApplication } from '@nestjs/common';
 import helmet from 'helmet';
+
+// Fix for Node.js SRV query ECONNREFUSED on Windows / local ISP DNS
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4']);
+} catch {
+  // Ignored in environments where setServers is restricted
+}
 
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from '@/common/filters/http-exception.filter';

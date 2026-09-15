@@ -126,7 +126,9 @@ export class DealsService {
     const count = query && query !== 'All' ? 6 : 12;
     const prompt = `You are an Indian shopping deal finder. Today's date is ${todayStr} (Year 2026).
 Find ${count} current, real promotional discounts and offers available in India across platforms like Amazon, Flipkart, Myntra, Swiggy, Zomato, Croma, Nykaa, MakeMyTrip, or Tata CLiQ ${
-      query && query !== 'All' ? `specifically for the category or search: "${query}"` : 'with 2 deals each across: Electronics, Fashion, Food, Beauty, Travel, and Home'
+      query && query !== 'All'
+        ? `specifically for the category or search: "${query}"`
+        : 'with 2 deals each across: Electronics, Fashion, Food, Beauty, Travel, and Home'
     }.
 
 IMPORTANT RULES:
@@ -180,12 +182,43 @@ Return ONLY a valid raw JSON array without markdown backticks.`;
             const normalizeCategory = (cat?: string): string => {
               if (!cat) return 'Shopping';
               const lower = cat.toLowerCase();
-              if (lower.includes('elec') || lower.includes('gadget') || lower.includes('phone') || lower.includes('tv')) return 'Electronics';
-              if (lower.includes('fash') || lower.includes('cloth') || lower.includes('shoe') || lower.includes('wear')) return 'Fashion';
-              if (lower.includes('food') || lower.includes('dine') || lower.includes('restaurant') || lower.includes('meal')) return 'Food';
-              if (lower.includes('beaut') || lower.includes('skin') || lower.includes('cosmetic')) return 'Beauty';
-              if (lower.includes('travel') || lower.includes('flight') || lower.includes('hotel') || lower.includes('trip')) return 'Travel';
-              if (lower.includes('home') || lower.includes('kitchen') || lower.includes('appliance') || lower.includes('bed')) return 'Home';
+              if (
+                lower.includes('elec') ||
+                lower.includes('gadget') ||
+                lower.includes('phone') ||
+                lower.includes('tv')
+              )
+                return 'Electronics';
+              if (
+                lower.includes('fash') ||
+                lower.includes('cloth') ||
+                lower.includes('shoe') ||
+                lower.includes('wear')
+              )
+                return 'Fashion';
+              if (
+                lower.includes('food') ||
+                lower.includes('dine') ||
+                lower.includes('restaurant') ||
+                lower.includes('meal')
+              )
+                return 'Food';
+              if (lower.includes('beaut') || lower.includes('skin') || lower.includes('cosmetic'))
+                return 'Beauty';
+              if (
+                lower.includes('travel') ||
+                lower.includes('flight') ||
+                lower.includes('hotel') ||
+                lower.includes('trip')
+              )
+                return 'Travel';
+              if (
+                lower.includes('home') ||
+                lower.includes('kitchen') ||
+                lower.includes('appliance') ||
+                lower.includes('bed')
+              )
+                return 'Home';
               return 'Shopping';
             };
 
@@ -211,7 +244,9 @@ Return ONLY a valid raw JSON array without markdown backticks.`;
             // If query is for a specific category, delete untracked deals in that category; else delete all untracked
             if (query && query !== 'All') {
               const targetCat = normalizeCategory(query);
-              await this.dealModel.deleteMany({ userId, tracked: false, category: targetCat }).exec();
+              await this.dealModel
+                .deleteMany({ userId, tracked: false, category: targetCat })
+                .exec();
             } else {
               await this.dealModel.deleteMany({ userId, tracked: false }).exec();
             }
@@ -221,15 +256,22 @@ Return ONLY a valid raw JSON array without markdown backticks.`;
                 const cat = normalizeCategory(d.category);
                 const platform = String(d.platform || 'Amazon');
                 const title = String(d.title || 'Special Deal');
-                
+
                 // Guarantee future 2026 date even if AI hallucinates an older year
                 let expiry = String(d.expiryDate || '');
-                if (!expiry || expiry.startsWith('2024') || expiry.startsWith('2025') || expiry < todayStr) {
+                if (
+                  !expiry ||
+                  expiry.startsWith('2024') ||
+                  expiry.startsWith('2025') ||
+                  expiry < todayStr
+                ) {
                   const daysAhead = 10 + Math.floor(Math.random() * 20);
                   expiry = new Date(Date.now() + 86400000 * daysAhead).toISOString().split('T')[0];
                 }
 
-                const dealUrl = d.dealUrl ? String(d.dealUrl) : this.getPlatformSearchUrl(platform, title);
+                const dealUrl = d.dealUrl
+                  ? String(d.dealUrl)
+                  : this.getPlatformSearchUrl(platform, title);
 
                 return {
                   userId: new Types.ObjectId(userId),
@@ -272,11 +314,13 @@ Return ONLY a valid raw JSON array without markdown backticks.`;
     const encoded = encodeURIComponent(title || '');
     if (p.includes('amazon')) return `https://www.amazon.in/s?k=${encoded}`;
     if (p.includes('flipkart')) return `https://www.flipkart.com/search?q=${encoded}`;
-    if (p.includes('myntra')) return `https://www.myntra.com/${encodeURIComponent((title || '').replace(/\s+/g, '-'))}`;
+    if (p.includes('myntra'))
+      return `https://www.myntra.com/${encodeURIComponent((title || '').replace(/\s+/g, '-'))}`;
     if (p.includes('swiggy')) return `https://www.swiggy.com/search?query=${encoded}`;
     if (p.includes('zomato')) return `https://www.zomato.com/india`;
     if (p.includes('nykaa')) return `https://www.nykaa.com/search/result/?q=${encoded}`;
-    if (p.includes('tata') || p.includes('cliq')) return `https://www.tatacliq.com/search/?searchCategory=all&text=${encoded}`;
+    if (p.includes('tata') || p.includes('cliq'))
+      return `https://www.tatacliq.com/search/?searchCategory=all&text=${encoded}`;
     if (p.includes('croma')) return `https://www.croma.com/searchB?q=${encoded}`;
     if (p.includes('makemytrip') || p.includes('mmt')) return `https://www.makemytrip.com/`;
     if (p.includes('lenskart')) return `https://www.lenskart.com/search?q=${encoded}`;

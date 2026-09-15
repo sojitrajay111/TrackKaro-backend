@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 
 import { CurrentUser, CurrentUserPayload } from '@/common/decorators/current-user.decorator';
+import { ParseObjectIdPipe } from '@/common/pipes/parse-object-id.pipe';
 import { CreateKhataEntryDto } from './dto/create-khata-entry.dto';
 import { SettleAllDto } from './dto/settle-all.dto';
 import { KhataService } from './khata.service';
@@ -30,7 +31,10 @@ export class KhataController {
   }
 
   @Patch(':id/toggle')
-  toggleStatus(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+  toggleStatus(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ) {
     return this.khataService.toggleStatus(user.userId, id);
   }
 
@@ -42,7 +46,10 @@ export class KhataController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async remove(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+  async remove(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ) {
     await this.khataService.remove(user.userId, id);
   }
 }

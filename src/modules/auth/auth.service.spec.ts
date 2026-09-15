@@ -52,7 +52,7 @@ describe('AuthService', () => {
     expect(tokens.accessToken).toBeTruthy();
     expect(tokens.refreshToken).toBeTruthy();
     expect(tokens.user.email).toBe(credentials.email);
-  });
+  }, 15_000); // connection settling can occasionally exceed Jest's default 5s test timeout. // First real DB write in the suite: bcrypt cost-12 hashing plus the in-memory Mongo
 
   it('rejects registering the same email twice', async () => {
     await expect(authService.register(credentials)).rejects.toBeInstanceOf(ConflictException);
