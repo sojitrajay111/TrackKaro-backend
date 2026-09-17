@@ -146,7 +146,47 @@ export class AssistantService {
       };
     }
 
-    // 3. Action AI: Bill Reminders & Dues
+    // 3. Action AI: Safe Discretionary Spending Limit
+    const isSafeSpendQuery =
+      lower.includes('safely spend') ||
+      lower.includes('safe to spend') ||
+      lower.includes('safe spend') ||
+      lower.includes('how much can i spend') ||
+      lower.includes('spending limit') ||
+      lower.includes('how much money can i spend');
+
+    if (isSafeSpendQuery) {
+      const safeSpendReply = await this.replySafeSpend(userId);
+      return {
+        id: 'chat-' + Date.now(),
+        sender: 'ai',
+        text: safeSpendReply,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    // 4. Action AI: Spending Breakdown / Expense Analysis
+    const isSpendingAnalysisQuery =
+      lower.includes('analyze my spending') ||
+      lower.includes('spending breakdown') ||
+      lower.includes('show my spending') ||
+      lower.includes('my spending this month') ||
+      lower.includes('expenses this month') ||
+      lower.includes('spending this month') ||
+      lower.includes('expense report') ||
+      lower.includes('how much did i spend');
+
+    if (isSpendingAnalysisQuery) {
+      const spendingReply = await this.replySpendingSummary(userId);
+      return {
+        id: 'chat-' + Date.now(),
+        sender: 'ai',
+        text: spendingReply,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    // 5. Action AI: Bill Reminders & Dues
     const isReminderQuery =
       lower.includes('remind') ||
       lower.includes('bill due') ||
@@ -168,7 +208,7 @@ export class AssistantService {
       }
     }
 
-    // 4. Action AI: Subscription Audit
+    // 6. Action AI: Subscription Audit
     const isSubscriptionQuery =
       lower.includes('subscription') || lower.includes('duplicate sub') || lower.includes('unused sub');
 
@@ -474,14 +514,6 @@ Return strict JSON with:
     const subs = await this.subscriptionsService.findAll(userId);
 
     const systemPrompt = `You are TrackKaro AI, a warm, intelligent personal financial Action Assistant for users in India.
-Current year is 2026 (today is September 2026).
-Note current smartphone retail pricing context in India (September 2026):
-- Apple iPhone 18 Pro (256GB): Launched at ₹1,64,900 (Croma/Apple official price; ₹7,000 instant bank discount available on ICICI/HDFC). Pro models start at 256GB (no 128GB variant).
-- Apple iPhone 18 Pro Max (256GB): Launched at ₹1,79,900 (with ₹7,000 bank discount).
-- Apple iPhone 18 Pro (512GB): ₹1,89,900.
-- Apple iPhone 17 Pro (256GB): MRP ₹1,34,900, currently discounted to ₹1,30,490 on Croma.
-- Apple iPhone 17 Pro Max (256GB): MRP ₹1,49,900, currently ₹1,43,990 on Croma.
-- Apple iPhone 17 (128GB): MRP ₹79,900.
 Current user real-time financial snapshot:
 - Current balance: ${formatINR(snapshot.currentBalance)}
 - Upcoming pending bills: ${formatINR(snapshot.upcomingBills)} (${snapshot.pendingReminders.length} bills pending)
@@ -494,17 +526,10 @@ Current user real-time financial snapshot:
 
 Guidelines:
 1. Always use Indian Rupee (₹) and Indian currency conventions.
-2. When the user asks if they can afford an item (e.g. "Can I afford a ₹20,000 phone?"), analyze their safe spending limit (${formatINR(snapshot.safeSpendingLimit)}) vs the requested price.
-If price > safe spending limit, say:
-"Yes, but I'd recommend waiting.
-Current balance: ${formatINR(snapshot.currentBalance)}
-Upcoming bills: ${formatINR(snapshot.upcomingBills)}
-Budget remaining: ${formatINR(snapshot.budgetRemaining)}
-Safe spending limit: ${formatINR(snapshot.safeSpendingLimit)}
-⚠️ That would exceed your safe discretionary budget."
-And suggest looking for alternatives under ${formatINR(snapshot.safeSpendingLimit)}.
-3. Keep replies structured, concise, friendly, and actionable with clear bullet points.
-4. If asked about deals or coupons, recommend checking the Deals tab for verified discounts.`;
+2. If the user has ₹0 recorded expenses or ₹0 balance, explicitly state that no transactions are recorded yet and politely guide them to log their income or expenses using the '+' button. Never output broken bullet lists or empty summaries.
+3. When the user asks if they can afford an item (e.g. "Can I afford a ₹20,000 phone?"), analyze their safe spending limit (${formatINR(snapshot.safeSpendingLimit)}) vs the requested price.
+4. Keep replies structured, concise, friendly, and complete with clear bullet points.
+5. If asked about external shopping deals, product discounts, or live market prices, guide the user to check Amazon/Flipkart/Google or explore the Deals tab, and remind them of TrackKaro's personal finance capabilities.`;
 
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -519,7 +544,7 @@ And suggest looking for alternatives under ${formatINR(snapshot.safeSpendingLimi
           { role: 'user', content: userText },
         ],
         temperature: 0.7,
-        max_tokens: 450,
+        max_tokens: 1024,
       }),
     });
 
@@ -562,14 +587,6 @@ And suggest looking for alternatives under ${formatINR(snapshot.safeSpendingLimi
     const subs = await this.subscriptionsService.findAll(userId);
 
     const systemPrompt = `You are TrackKaro AI, a warm, intelligent personal financial Action Assistant for users in India.
-Current year is 2026 (today is September 2026).
-Note current smartphone retail pricing context in India (September 2026):
-- Apple iPhone 18 Pro (256GB): Launched at ₹1,64,900 (Croma/Apple official price; ₹7,000 instant bank discount available on ICICI/HDFC). Pro models start at 256GB (no 128GB variant).
-- Apple iPhone 18 Pro Max (256GB): Launched at ₹1,79,900 (with ₹7,000 bank discount).
-- Apple iPhone 18 Pro (512GB): ₹1,89,900.
-- Apple iPhone 17 Pro (256GB): MRP ₹1,34,900, currently discounted to ₹1,30,490 on Croma.
-- Apple iPhone 17 Pro Max (256GB): MRP ₹1,49,900, currently ₹1,43,990 on Croma.
-- Apple iPhone 17 (128GB): MRP ₹79,900.
 Current user real-time financial snapshot:
 - Current balance: ${formatINR(snapshot.currentBalance)}
 - Upcoming pending bills: ${formatINR(snapshot.upcomingBills)} (${snapshot.pendingReminders.length} bills pending)
@@ -582,17 +599,10 @@ Current user real-time financial snapshot:
 
 Guidelines:
 1. Always use Indian Rupee (₹) and Indian currency conventions.
-2. When the user asks if they can afford an item (e.g. "Can I afford a ₹20,000 phone?"), analyze their safe spending limit (${formatINR(snapshot.safeSpendingLimit)}) vs the requested price.
-If price > safe spending limit, say:
-"Yes, but I'd recommend waiting.
-Current balance: ${formatINR(snapshot.currentBalance)}
-Upcoming bills: ${formatINR(snapshot.upcomingBills)}
-Budget remaining: ${formatINR(snapshot.budgetRemaining)}
-Safe spending limit: ${formatINR(snapshot.safeSpendingLimit)}
-⚠️ That would exceed your safe discretionary budget."
-And suggest looking for alternatives under ${formatINR(snapshot.safeSpendingLimit)}.
-3. Keep replies structured, concise, friendly, and actionable with clear bullet points.
-4. If asked about deals or coupons, recommend checking the Deals tab for verified discounts.`;
+2. If the user has ₹0 recorded expenses or ₹0 balance, explicitly state that no transactions are recorded yet and politely guide them to log their income or expenses using the '+' button. Never output broken bullet lists or empty summaries.
+3. When the user asks if they can afford an item (e.g. "Can I afford a ₹20,000 phone?"), analyze their safe spending limit (${formatINR(snapshot.safeSpendingLimit)}) vs the requested price.
+4. Keep replies structured, concise, friendly, and complete with clear bullet points.
+5. If asked about external shopping deals, product discounts, or live market prices, guide the user to check Amazon/Flipkart/Google or explore the Deals tab, and remind them of TrackKaro's personal finance capabilities.`;
 
     const candidateModels = ['gemini-3.6-flash', 'gemini-2.5-flash'];
     for (const model of candidateModels) {
@@ -613,7 +623,7 @@ And suggest looking for alternatives under ${formatINR(snapshot.safeSpendingLimi
             ],
             generationConfig: {
               temperature: 0.7,
-              maxOutputTokens: 350,
+              maxOutputTokens: 1024,
             },
           }),
         });
@@ -672,8 +682,7 @@ And suggest looking for alternatives under ${formatINR(snapshot.safeSpendingLimi
     // Budgets
     const budgets = await this.budgetsService.findAll(userId);
     const totalBudget = budgets.reduce((sum, b) => sum + b.limit, 0);
-    const effectiveBudget =
-      totalBudget > 0 ? totalBudget : totalIncomeThisMonth > 0 ? totalIncomeThisMonth : 50000;
+    const effectiveBudget = totalBudget > 0 ? totalBudget : totalIncomeThisMonth;
     const budgetRemaining = Math.max(0, effectiveBudget - totalSpentThisMonth);
 
     // Upcoming pending bills
@@ -681,24 +690,25 @@ And suggest looking for alternatives under ${formatINR(snapshot.safeSpendingLimi
     const pendingReminders = reminders.filter((r) => r.status === 'pending');
     const upcomingBills = pendingReminders.reduce((sum, r) => sum + r.amount, 0);
 
-    // Estimated current balance
+    // Actual current balance from recorded income & expenses (no mock placeholders)
     const netBalance = totalIncomeAllTime - totalExpenseAllTime;
-    const currentBalance =
-      netBalance > 0 ? netBalance : Math.max(62400, effectiveBudget + 15000 - totalSpentThisMonth);
+    const currentBalance = Math.max(0, netBalance);
 
     // Safe discretionary spending limit
-    const safeSpendingLimit = Math.max(
-      0,
-      Math.min(budgetRemaining, Math.max(0, currentBalance - upcomingBills)),
-    );
+    const availableAfterBills = Math.max(0, currentBalance - upcomingBills);
+    const safeSpendingLimit =
+      effectiveBudget > 0
+        ? Math.min(budgetRemaining, availableAfterBills)
+        : availableAfterBills;
 
     return {
       currentBalance,
       upcomingBills,
       totalBudget: effectiveBudget,
       budgetRemaining,
-      safeSpendingLimit: safeSpendingLimit > 0 ? safeSpendingLimit : 8000,
+      safeSpendingLimit,
       totalSpentThisMonth,
+      totalIncomeThisMonth,
       pendingReminders,
       budgets,
     };
@@ -786,7 +796,12 @@ And suggest looking for alternatives under ${formatINR(snapshot.safeSpendingLimi
     let verdictSubtitle = `This purchase fits within your safe discretionary budget of ${formatINR(safeSpendingLimit)}.`;
     let warning: string | undefined = undefined;
 
-    if (requestedAmount > currentBalance) {
+    if (currentBalance === 0 && requestedAmount > 0) {
+      verdict = 'caution';
+      verdictTitle = 'No income or balance recorded yet.';
+      verdictSubtitle = "Please log your income or bank balance using the '+' button to run an accurate affordability check.";
+      warning = '⚠️ Your recorded balance is ₹0.';
+    } else if (requestedAmount > currentBalance) {
       verdict = 'danger';
       verdictTitle = "No, I'd strongly advise against this.";
       verdictSubtitle = `This purchase exceeds your current available balance of ${formatINR(currentBalance)}.`;
@@ -798,28 +813,31 @@ And suggest looking for alternatives under ${formatINR(snapshot.safeSpendingLimi
       warning = `⚠️ ${formatINR(requestedAmount)} would exceed your safe discretionary budget.`;
     }
 
-    const safeCeilK = Math.max(5000, Math.round(safeSpendingLimit / 1000) * 1000);
+    const safeCeilK = safeSpendingLimit > 0 ? Math.round(safeSpendingLimit / 1000) * 1000 : 0;
     const limitLabel =
       safeCeilK >= 1000 ? `${Math.round(safeCeilK / 1000)}K` : formatINR(safeCeilK);
 
-    const actionButton: AffordabilityPayload['actionButton'] =
-      verdict === 'caution' || verdict === 'danger'
-        ? {
-            label: `Find ${item}s under ₹${limitLabel}`,
-            action: 'search_deals',
-            params: {
-              query: item,
-              maxPrice: safeSpendingLimit,
-            },
-          }
-        : {
-            label: `Find deals for ${item}`,
-            action: 'search_deals',
-            params: {
-              query: item,
-              maxPrice: requestedAmount,
-            },
-          };
+    let actionButton: AffordabilityPayload['actionButton'] = undefined;
+    if (currentBalance > 0 && safeSpendingLimit > 0) {
+      actionButton =
+        verdict === 'caution' || verdict === 'danger'
+          ? {
+              label: `Find ${item}s under ₹${limitLabel}`,
+              action: 'search_deals',
+              params: {
+                query: item,
+                maxPrice: safeSpendingLimit,
+              },
+            }
+          : {
+              label: `Find deals for ${item}`,
+              action: 'search_deals',
+              params: {
+                query: item,
+                maxPrice: requestedAmount,
+              },
+            };
+    }
 
     const payload: AffordabilityPayload = {
       item,
@@ -844,7 +862,7 @@ And suggest looking for alternatives under ${formatINR(snapshot.safeSpendingLimi
       `Budget remaining     ${formatINR(budgetRemaining)}\n` +
       `Safe spending limit  ${formatINR(safeSpendingLimit)}\n\n` +
       (warning ? `${warning}\n\n` : '') +
-      `[${actionButton.label}]`;
+      (actionButton ? `[${actionButton.label}]` : '').trim();
 
     return {
       text,
@@ -923,16 +941,122 @@ Return ONLY valid JSON with no markdown wrapping or extra comments.`;
    */
   private async replyPriceLookupGuide(userId: string): Promise<string> {
     const snapshot = await this.getFinancialSnapshot(userId);
+    const safeLimitText =
+      snapshot.safeSpendingLimit > 0
+        ? `Your safe limit: ${formatINR(snapshot.safeSpendingLimit)}`
+        : 'Tap + to log income & calculate limit';
+
     return (
       `🔍 **TrackKaro is your Personal Finance & Budget Assistant**, not a real-time shopping search engine.\n\n` +
       `For live market prices, retailer comparisons, or product searches, please do a quick **Google search** or check **Amazon**, **Flipkart**, or **Croma** directly!\n\n` +
       `💡 **Here is what you can ask me about your finances:**\n` +
-      `• **"How much money can I safely spend?"** (Safe discretionary limit: ${formatINR(snapshot.safeSpendingLimit)})\n` +
-      `• **"Can I afford a ₹50,000 phone?"** (Instant affordability check against your balance)\n` +
+      `• **"How much money can I safely spend?"** (${safeLimitText})\n` +
+      `• **"Can I afford a ₹20,000 phone?"** (Instant affordability check against your balance)\n` +
       `• **"What are my upcoming bills?"** (${snapshot.pendingReminders.length} pending bill reminders)\n` +
       `• **"How much did I spend on Food this month?"**\n` +
       `• **"Audit my active subscriptions"**\n\n` +
       `🛍️ You can also explore our **Deals tab** for curated discounts and promo codes!`
+    );
+  }
+
+  /**
+   * Generates a safe discretionary spending answer based purely on authentic user data.
+   */
+  private async replySafeSpend(userId: string): Promise<string> {
+    const snapshot = await this.getFinancialSnapshot(userId);
+    const {
+      currentBalance,
+      upcomingBills,
+      totalBudget,
+      budgetRemaining,
+      safeSpendingLimit,
+      totalSpentThisMonth,
+      pendingReminders,
+    } = snapshot;
+
+    if (currentBalance === 0 && totalSpentThisMonth === 0) {
+      return (
+        `💰 **Safe Spending Limit: ₹0**\n\n` +
+        `No income or account balance has been recorded yet.\n\n` +
+        `💡 **To calculate your safe spending limit:**\n` +
+        `1. Tap the **+** button at the bottom of the screen.\n` +
+        `2. Log your monthly income or bank balance.\n\n` +
+        `Once added, TrackKaro will automatically subtract your upcoming bills (${pendingReminders.length > 0 ? formatINR(upcomingBills) + ' pending' : 'no pending bills'}) and budgets to calculate your safe limit!`
+      );
+    }
+
+    let statusNote = '✅ This fits comfortably within your monthly budget and bill commitments.';
+    if (safeSpendingLimit <= 0) {
+      statusNote =
+        '⚠️ You have reached your safe spending limit. Prioritize pending bills and essential expenses.';
+    }
+
+    return (
+      `💰 You can safely spend up to **${formatINR(safeSpendingLimit)}** this month!\n\n` +
+      `**Live Financial Snapshot:**\n` +
+      `• Current balance: ${formatINR(currentBalance)}\n` +
+      `• Upcoming bills: ${formatINR(upcomingBills)} (${pendingReminders.length} pending)\n` +
+      `• Monthly budget: ${formatINR(totalBudget)}\n` +
+      `• Budget remaining: ${formatINR(budgetRemaining)}\n` +
+      `• Spent this month: ${formatINR(totalSpentThisMonth)}\n\n` +
+      statusNote
+    );
+  }
+
+  /**
+   * Generates a structured monthly spending breakdown based on authentic transactions.
+   */
+  private async replySpendingSummary(userId: string): Promise<string> {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const monthName = now.toLocaleString('default', { month: 'long' });
+
+    const { items } = await this.transactionsService.findAll(userId, {
+      type: 'expense',
+      page: 1,
+      limit: ALL_TRANSACTIONS_LIMIT,
+    });
+
+    const thisMonthExpenses = items.filter((t) => {
+      const d = new Date(t.date);
+      return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
+    });
+
+    if (thisMonthExpenses.length === 0) {
+      return (
+        `📊 **No expenses recorded for ${monthName} yet!**\n\n` +
+        `You haven't logged any expenses so far this month.\n\n` +
+        `💡 **Quick ways to start tracking:**\n` +
+        `• Tap the **+** button at the bottom to log daily expenses.\n` +
+        `• Scan a paper bill or receipt using the receipt scanner.\n` +
+        `• Use voice logging to add transactions hands-free.\n\n` +
+        `Once you add your expenses, I'll provide category breakdowns, top spending areas, and actionable budget insights here!`
+      );
+    }
+
+    const totalSpent = thisMonthExpenses.reduce((sum, t) => sum + t.amount, 0);
+    const byCategory = new Map<string, number>();
+    for (const tx of thisMonthExpenses) {
+      byCategory.set(tx.category, (byCategory.get(tx.category) ?? 0) + tx.amount);
+    }
+
+    const topCategories = [...byCategory.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+
+    const categoryLines = topCategories
+      .map(([cat, amt]) => {
+        const pct = totalSpent > 0 ? Math.round((amt / totalSpent) * 100) : 0;
+        return `• **${cat}:** ${formatINR(amt)} (${pct}%)`;
+      })
+      .join('\n');
+
+    return (
+      `📊 **Spending Breakdown for ${monthName}:**\n\n` +
+      `• **Total Spent:** ${formatINR(totalSpent)} (${thisMonthExpenses.length} transaction${thisMonthExpenses.length === 1 ? '' : 's'})\n\n` +
+      `**Top Spending Categories:**\n` +
+      categoryLines
     );
   }
 
@@ -960,6 +1084,20 @@ Return ONLY valid JSON with no markdown wrapping or extra comments.`;
       lower.includes('offer')
     ) {
       text = await this.replyPriceLookupGuide(userId);
+    } else if (
+      lower.includes('safely spend') ||
+      lower.includes('safe to spend') ||
+      lower.includes('safe spend') ||
+      lower.includes('spending limit')
+    ) {
+      text = await this.replySafeSpend(userId);
+    } else if (
+      lower.includes('analyze') ||
+      lower.includes('spending') ||
+      lower.includes('breakdown') ||
+      lower.includes('expense report')
+    ) {
+      text = await this.replySpendingSummary(userId);
     } else if (lower.includes('food')) {
       text = await this.replyFoodSpend(userId);
     } else if (lower.includes('where') && (lower.includes('spending') || lower.includes('most'))) {
