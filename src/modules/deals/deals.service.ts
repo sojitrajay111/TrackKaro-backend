@@ -53,6 +53,21 @@ export class DealsService {
   }
 
   async findAll(userId: string): Promise<PublicDeal[]> {
+    // Purge any hallucinated or fictional models (e.g. iPhone 17 or impossible prices)
+    try {
+      await this.dealModel
+        .deleteMany({
+          userId,
+          $or: [
+            { title: { $regex: /iphone 17/i } },
+            { title: { $regex: /iphone 15/i }, finalPriceMinor: { $gt: 10000000 } },
+          ],
+        })
+        .exec();
+    } catch {
+      // ignore cleanup errors
+    }
+
     const docs = await this.dealModel.find({ userId }).exec();
     if (docs.length === 0) {
       return this.findRealDealsWithAI(userId);
@@ -133,7 +148,7 @@ Find ${count} current, real promotional discounts and offers available in India 
 
 IMPORTANT RULES:
 1. Current Year is 2026. Every expiryDate MUST be in 2026 between "${expiryMinStr}" and "${expiryMaxStr}". Do NOT use past years like 2024 or 2025.
-2. Provide real product models and realistic Indian market pricing in INR.
+2. Provide REAL, officially released product models and authentic Indian market retail pricing in INR. Do NOT invent fictional future devices (such as iPhone 17 or non-existent gadgets). For electronics like Apple iPhones, strictly adhere to genuine Indian market retail prices (e.g., iPhone 15: ₹52,000 - ₹65,000; iPhone 15 Plus: ₹62,000 - ₹75,000; iPhone 16: ₹72,000 - ₹79,900; OnePlus 12: ~₹54,999; Samsung Galaxy S24: ~₹65,000 - ₹74,999; mid-range phones: ₹15,000 - ₹30,000). Base smartphone models should NEVER exceed genuine retail pricing.
 3. Categories must strictly be one of: "Electronics", "Fashion", "Food", "Beauty", "Travel", "Home".
 4. Include a valid "dealUrl" field for each deal (a platform search or direct offer URL, e.g., https://www.amazon.in/s?k=... or https://www.flipkart.com/search?q=...).
 

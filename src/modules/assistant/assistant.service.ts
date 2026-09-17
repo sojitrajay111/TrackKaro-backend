@@ -405,7 +405,7 @@ And suggest looking for alternatives under ${formatINR(snapshot.safeSpendingLimi
 3. Keep replies structured, concise, friendly, and actionable with clear bullet points.
 4. If asked about deals or coupons, recommend checking the Deals tab for verified discounts.`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
     const res = await fetch(url, {
       method: 'POST',
@@ -672,7 +672,7 @@ And suggest looking for alternatives under ${formatINR(snapshot.safeSpendingLimi
 }
 Return ONLY valid JSON with no markdown wrapping or extra comments.`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
     const res = await fetch(url, {
       method: 'POST',
@@ -812,24 +812,53 @@ Return ONLY valid JSON with no markdown wrapping or extra comments.`;
     userId: string,
     query?: string,
   ): Promise<Pick<ChatReply, 'text' | 'actionType' | 'payload'>> {
-    const deals = await this.dealsService.findAll(userId);
-    const q = (query || '').toLowerCase();
+    const rawQ = (query || '').toLowerCase().trim();
+    const cleanQ = rawQ
+      .replace(/^(best\s+)?(deal|deals|offer|offers|discount|discounts)(\s+for|\s+on|\s+in)?\s+/i, '')
+      .replace(/^(find|show|give|get)(\s+me)?\s+(the\s+)?(best\s+)?(deal|deals|offer|offers)?(\s+for|\s+on)?\s+/i, '')
+      .trim();
+
+    let deals = await this.dealsService.findAll(userId);
+
+    // 1. High priority: match specific product title (e.g. "iphone 15", "macbook air")
     let topDeal = deals.find((d) => {
       const t = d.title.toLowerCase();
-      const c = (d.category || '').toLowerCase();
-      return (
-        (q.includes('phone') &&
-          (t.includes('phone') ||
-            t.includes('galaxy') ||
-            t.includes('samsung') ||
-            c.includes('electronics'))) ||
-        (q.includes('laptop') &&
-          (t.includes('laptop') || t.includes('hp') || c.includes('electronics'))) ||
-        (q.includes('shoe') && (t.includes('shoe') || t.includes('nike'))) ||
-        (q.includes('swiggy') && (t.includes('swiggy') || c.includes('food'))) ||
-        t.includes(q)
-      );
+      return cleanQ.length > 2 && t.includes(cleanQ);
     });
+
+    // 2. If no exact match and user asked for a specific product, search live via AI!
+    if (!topDeal && cleanQ.length > 2) {
+      try {
+        const freshDeals = await this.dealsService.findRealDealsWithAI(userId, cleanQ);
+        if (freshDeals && freshDeals.length > 0) {
+          deals = freshDeals;
+          topDeal = deals.find((d) => d.title.toLowerCase().includes(cleanQ)) || deals[0];
+        }
+      } catch {
+        // fallback to local search
+      }
+    }
+
+    // 3. Category / keyword fallback if no specific product matched
+    if (!topDeal) {
+      topDeal = deals.find((d) => {
+        const t = d.title.toLowerCase();
+        const c = (d.category || '').toLowerCase();
+        return (
+          (rawQ.includes('phone') &&
+            (t.includes('phone') ||
+              t.includes('galaxy') ||
+              t.includes('samsung') ||
+              t.includes('iphone') ||
+              c.includes('electronics'))) ||
+          (rawQ.includes('laptop') &&
+            (t.includes('laptop') || t.includes('hp') || t.includes('macbook') || c.includes('electronics'))) ||
+          (rawQ.includes('shoe') && (t.includes('shoe') || t.includes('nike') || t.includes('sneaker'))) ||
+          (rawQ.includes('swiggy') && (t.includes('swiggy') || c.includes('food'))) ||
+          t.includes(rawQ)
+        );
+      });
+    }
 
     if (!topDeal) {
       topDeal = deals.find((d) => d.title.toLowerCase().includes('nike')) ?? deals[0];
