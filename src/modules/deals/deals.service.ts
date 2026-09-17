@@ -178,30 +178,40 @@ SEARCH & PRICE VALIDATION RULES:
 1. Search multiple Indian retailers: amazon.in, flipkart.com, croma.com, reliancedigital.in, vijaysales.com, tatacliq.com, myntra.com, nykaa.com, or official brand stores.
 2. Market: India. Currency: INR (₹). Current year: 2026.
 3. Compare equivalent products only. Do not mix storage, generations, or conditions (refurbished vs new).
-4. For every deal determine: product name, exact variant, listed price, MRP if available, discount, coupon if explicitly available, effective price if coupon is applicable, merchant, product URL.
-5. Never invent price, coupon code, cashback, expiry date, stock status, or discount percentage.
-6. Only report a coupon if explicitly valid. Clearly identify conditions (bank card, EMI, exchange).
-7. If the user asks for a specific product (e.g. "iPhone 17"), return strictly variants of that product.
-8. Categories: "Electronics", "Fashion", "Food", "Beauty", "Travel", "Home".
+4. AUTHENTIC INDIAN MARKET BENCHMARKS (INR - 2026):
+   - Apple iPhone 18 Pro (256GB): Listed at ₹1,64,900 on Croma with ₹7,000 instant bank discount (ICICI/HDFC Credit Cards + No Cost EMI). Note: iPhone Pro models start at 256GB; there is NO 128GB variant.
+   - Apple iPhone 18 Pro Max (256GB): Listed at ₹1,79,900 on Croma with ₹7,000 instant bank discount.
+   - Apple iPhone 18 Pro (512GB): Listed at ₹1,89,900.
+   - Apple iPhone 17 Pro (256GB): MRP ₹1,34,900, current Croma price ₹1,30,490.
+   - Apple iPhone 17 Pro Max (256GB): MRP ₹1,49,900, current Croma price ₹1,43,990.
+   - Apple iPhone 17 (128GB): MRP ₹79,900.
+   - Apple iPhone 13 (128GB): MRP ₹49,900, current price ₹39,994 (20% off).
+   - Samsung Galaxy S25 / S24: ₹69,999 - ₹1,29,999.
+5. For every deal determine: product name, exact variant, listed price, MRP if available, discount, coupon if explicitly available, effective price if coupon is applicable, merchant, product URL.
+6. Never invent price, coupon code, cashback, expiry date, stock status, or discount percentage.
+7. Only report a coupon or bank discount if explicitly valid. Clearly identify conditions (bank card, EMI, exchange).
+8. If the user asks for a specific product (e.g. "iPhone 18"), return strictly variants of that product.
+9. Categories: "Electronics", "Fashion", "Food", "Beauty", "Travel", "Home".
+10. Deal URLs must be real platform search URLs: https://www.croma.com/searchB?q=... or https://www.amazon.in/s?k=... or https://www.flipkart.com/search?q=...
 
 Return ONLY a JSON array of objects with the exact schema:
 [
   {
     "title": "Exact Product Name & Variant",
-    "platform": "Amazon",
+    "platform": "Croma",
     "category": "Electronics",
-    "originalPrice": 79900,
-    "currentPrice": 79900,
-    "discountPercent": 6,
-    "couponCode": "HDFC5000",
-    "cashbackText": "Flat ₹5,000 Instant Discount on HDFC Bank Credit Cards",
+    "originalPrice": 164900,
+    "currentPrice": 164900,
+    "discountPercent": 4,
+    "couponCode": "",
+    "cashbackText": "Bank Discount of ₹7,000 on ICICI/HDFC Credit Cards + No Cost EMI",
     "deliveryCharge": 0,
-    "finalPrice": 74900,
-    "savingsAmount": 5000,
+    "finalPrice": 157900,
+    "savingsAmount": 7000,
     "expiryDate": "${expiryMinStr}",
-    "bestReason": "Lowest effective price with eligible HDFC bank offer.",
+    "bestReason": "Verified Croma retailer launch price with bank discount.",
     "rating": 4.7,
-    "dealUrl": "https://www.amazon.in/s?k=..."
+    "dealUrl": "https://www.croma.com/searchB?q=iphone+18+pro"
   }
 ]
 Do not wrap in markdown or backticks. Return valid raw JSON array only.`;
@@ -258,62 +268,84 @@ Do not wrap in markdown or backticks. Return valid raw JSON array only.`;
     const expiryMaxStr = new Date(Date.now() + 86400000 * 35).toISOString().split('T')[0];
 
     const count = query && query !== 'All' ? 6 : 12;
+
+
+
+    // 2. Fallback: Gemini generation with authentic market pricing rules
     const prompt = `You are an Indian shopping deal finder. Today's date is ${todayStr} (Year 2026).
-Find ${count} current, real promotional discounts and offers available in India across platforms like Amazon, Flipkart, Myntra, Swiggy, Zomato, Croma, Nykaa, MakeMyTrip, or Tata CLiQ ${
+Find ${count} current, real promotional discounts and offers available in India across platforms like Croma, Amazon.in, Flipkart, Myntra, Swiggy, Zomato, Nykaa, MakeMyTrip, or Tata CLiQ ${
       query && query !== 'All'
         ? `specifically for: "${query}". Every single returned deal item MUST be a genuine offer directly relevant to "${query}".`
         : 'with 2 deals each across: Electronics, Fashion, Food, Beauty, Travel, and Home'
     }.
 
-IMPORTANT RULES:
-1. Current Year is 2026. Every expiryDate MUST be in 2026 between "${expiryMinStr}" and "${expiryMaxStr}". Do NOT use past years like 2024 or 2025.
-2. Provide authentic Indian market retail pricing in INR for genuine devices (e.g., iPhone 15: ₹52,000 - ₹62,000; iPhone 16: ₹64,000 - ₹74,000; iPhone 17: ~₹79,900; iPhone 18 Pro: ~₹1,34,900; OnePlus 12: ~₹54,999; Samsung Galaxy S24: ~₹65,000 - ₹74,999; mid-range phones: ₹15,000 - ₹30,000). Base smartphone models should reflect authentic market retail pricing.
-3. Categories must strictly be one of: "Electronics", "Fashion", "Food", "Beauty", "Travel", "Home".
-4. Include a valid "dealUrl" field for each deal (a platform search or direct offer URL, e.g., https://www.amazon.in/s?k=... or https://www.flipkart.com/search?q=...).
+AUTHENTIC INDIAN MARKET BENCHMARKS (INR - 2026):
+- Apple iPhone 18 Pro (256GB): Listed at ₹1,64,900 on Croma with ₹7,000 instant bank discount (ICICI/HDFC Cards). Pro models start at 256GB (no 128GB variant).
+- Apple iPhone 18 Pro Max (256GB): Listed at ₹1,79,900 on Croma with ₹7,000 instant bank discount.
+- Apple iPhone 18 Pro (512GB): Listed at ₹1,89,900.
+- Apple iPhone 17 Pro (256GB): MRP ₹1,34,900, current price ₹1,30,490 on Croma (Save ₹4,410).
+- Apple iPhone 17 Pro Max (256GB): MRP ₹1,49,900, current price ₹1,43,990 on Croma (Save ₹5,910).
+- Apple iPhone 17 (128GB): MRP ₹79,900.
+- Apple iPhone 16 (128GB): ₹69,900.
+- Apple iPhone 13 (128GB): MRP ₹49,900, current price ₹39,994 on Croma.
+- Samsung Galaxy S24 (128GB/256GB): ₹54,999 - ₹64,999 (with bank offers up to ₹5,000).
+- Samsung Galaxy S24 Ultra: ₹1,19,999 - ₹1,29,999.
+- Samsung Galaxy S25 / S25 Ultra: ₹74,999 - ₹1,34,999.
+- Categories must strictly be one of: "Electronics", "Fashion", "Food", "Beauty", "Travel", "Home".
+- Include a valid "dealUrl" field for each deal using actual platform search links (e.g. https://www.croma.com/searchB?q=... or https://www.amazon.in/s?k=... or https://www.flipkart.com/search?q=...).
 
 Return a JSON array of objects matching this exact format:
 [
   {
-    "title": "boAt Airdopes 141 Bluetooth TWS Earbuds",
-    "platform": "Amazon",
+    "title": "Apple iPhone 18 Pro (256GB, Burgundy)",
+    "platform": "Croma",
     "category": "Electronics",
-    "originalPrice": 4490,
-    "currentPrice": 1299,
-    "discountPercent": 71,
-    "couponCode": "SAVE100",
-    "cashbackText": "Flat ₹100 Instant Bank Discount on HDFC Cards",
+    "originalPrice": 164900,
+    "currentPrice": 164900,
+    "discountPercent": 4,
+    "couponCode": "",
+    "cashbackText": "Bank Discount of ₹7000 on ICICI/HDFC Cards + No Cost EMI",
     "deliveryCharge": 0,
-    "finalPrice": 1199,
-    "savingsAmount": 3291,
+    "finalPrice": 157900,
+    "savingsAmount": 7000,
     "expiryDate": "${expiryMinStr}",
-    "bestReason": "Lowest price drop with instant bank discount.",
-    "rating": 4.5,
-    "dealUrl": "https://www.amazon.in/s?k=boAt+Airdopes+141"
+    "bestReason": "Verified Croma catalog price with instant bank discount.",
+    "rating": 4.7,
+    "dealUrl": "https://www.croma.com/searchB?q=iphone+18+pro"
   }
 ]
 Return ONLY a valid raw JSON array without markdown backticks.`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-          responseMimeType: 'application/json',
-        },
-      }),
-    });
+    const candidateModels = ['gemini-3.6-flash', 'gemini-2.5-flash'];
+    for (const model of candidateModels) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.2,
+              responseMimeType: 'application/json',
+            },
+          }),
+        });
 
-    if (res.ok) {
-      const data = await res.json();
-      const rawJson = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (rawJson) {
-        const parsed = JSON.parse(rawJson);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return this.persistGeneratedDeals(userId, query, parsed, expiryMinStr);
+        if (res.ok) {
+          const data = await res.json();
+          const rawJson = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (rawJson) {
+            const parsed = JSON.parse(rawJson);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              return this.persistGeneratedDeals(userId, query, parsed, expiryMinStr);
+            }
+          }
+        } else {
+          this.logger.warn(`Gemini (${model}) generation returned HTTP ${res.status}`);
         }
+      } catch (err: unknown) {
+        this.logger.warn(`Gemini (${model}) generation error: ${err}`);
       }
     }
 

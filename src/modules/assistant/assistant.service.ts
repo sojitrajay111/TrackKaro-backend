@@ -116,32 +116,34 @@ export class AssistantService {
 
     const lower = userText.toLowerCase();
 
-    // 2. Action AI: Deals / Offers / Specific Product Queries
-    const isDealQuery =
+    // 2. Shopping / Deals / Market Price Lookup Boundary:
+    // When the user asks for external shopping deals, product discounts, or prices
+    // (e.g. "Find best deals on iPhone 15", "what is the best price for samsung s24"),
+    // guide them to the AI Deals tab or Google, and suggest personal finance features.
+    const isShoppingOrPriceQuery =
       lower.includes('deal') ||
       lower.includes('discount') ||
       lower.includes('coupon') ||
       lower.includes('offer') ||
-      lower.includes('iphone') ||
+      lower.includes('price') ||
+      lower.includes('cost') ||
+      lower.includes('rate') ||
+      lower.includes('how much') ||
+      lower.includes('best price') ||
+      lower.includes('cheapest') ||
       lower.includes('samsung') ||
+      lower.includes('iphone') ||
       lower.includes('macbook') ||
-      lower.includes('laptop') ||
-      lower.includes('nike') ||
-      lower.includes('shoe') ||
-      lower.includes('sneaker');
+      lower.includes('laptop');
 
-    if (isDealQuery) {
-      const dealReply = await this.replyDeal(userId, userText);
-      if (dealReply && dealReply.actionType === 'deal_recommendation') {
-        return {
-          id: 'chat-' + Date.now(),
-          sender: 'ai',
-          text: dealReply.text,
-          timestamp: new Date().toISOString(),
-          actionType: dealReply.actionType,
-          payload: dealReply.payload,
-        };
-      }
+    if (isShoppingOrPriceQuery && !lower.includes('afford') && !lower.includes('spend')) {
+      const guideText = await this.replyPriceLookupGuide(userId);
+      return {
+        id: 'chat-' + Date.now(),
+        sender: 'ai',
+        text: guideText,
+        timestamp: new Date().toISOString(),
+      };
     }
 
     // 3. Action AI: Bill Reminders & Dues
@@ -346,61 +348,64 @@ Return strict JSON with:
   "date": "YYYY-MM-DD" (calculate relative dates. If NO date was mentioned by the user, you MUST return "${todayIso}")
 }`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.1,
-          responseMimeType: 'application/json',
-        },
-      }),
-    });
+    const candidateModels = ['gemini-3.6-flash', 'gemini-2.5-flash'];
+    for (const model of candidateModels) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.1,
+              responseMimeType: 'application/json',
+            },
+          }),
+        });
 
-    if (!res.ok) {
-      const errBody = await res.text();
-      throw new Error(`Gemini HTTP ${res.status}: ${errBody}`);
-    }
-
-    const data = await res.json();
-    const rawJson = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!rawJson) return null;
-
-    try {
-      const parsed = JSON.parse(rawJson);
-      const todayIso = new Date().toISOString().split('T')[0];
-      const date = parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : todayIso;
-
-      if (mode === 'expense') {
-        let cat: CategoryName = 'Other';
-        if (CATEGORY_NAMES.includes(parsed.category)) {
-          cat = parsed.category as CategoryName;
+        if (!res.ok) {
+          continue;
         }
-        return {
-          transcript: parsed.transcript || text,
-          amount: Math.abs(Number(parsed.amount)) || 0,
-          title: String(parsed.merchant || 'Expense').trim(),
-          category: cat,
-          type: parsed.type === 'income' ? 'income' : 'expense',
-          date,
-        };
-      } else {
-        return {
-          transcript: parsed.transcript || text,
-          amount: Math.abs(Number(parsed.amount)) || 0,
-          title: String(parsed.personName || 'Contact').trim(),
-          personName: String(parsed.personName || 'Contact').trim(),
-          category: 'Other',
-          type: parsed.type === 'took' ? 'took' : 'gave',
-          notes: parsed.notes ? String(parsed.notes).trim() : undefined,
-          date,
-        };
+
+        const data = await res.json();
+        const rawJson = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!rawJson) continue;
+
+        const parsed = JSON.parse(rawJson);
+        const todayIso = new Date().toISOString().split('T')[0];
+        const date = parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : todayIso;
+
+        if (mode === 'expense') {
+          let cat: CategoryName = 'Other';
+          if (CATEGORY_NAMES.includes(parsed.category)) {
+            cat = parsed.category as CategoryName;
+          }
+          return {
+            transcript: parsed.transcript || text,
+            amount: Math.abs(Number(parsed.amount)) || 0,
+            title: String(parsed.merchant || 'Expense').trim(),
+            category: cat,
+            type: parsed.type === 'income' ? 'income' : 'expense',
+            date,
+          };
+        } else {
+          return {
+            transcript: parsed.transcript || text,
+            amount: Math.abs(Number(parsed.amount)) || 0,
+            title: String(parsed.personName || 'Contact').trim(),
+            personName: String(parsed.personName || 'Contact').trim(),
+            category: 'Other',
+            type: parsed.type === 'took' ? 'took' : 'gave',
+            notes: parsed.notes ? String(parsed.notes).trim() : undefined,
+            date,
+          };
+        }
+      } catch {
+        continue;
       }
-    } catch {
-      return null;
     }
+    return null;
   }
 
   private fallbackLocalParse(text: string, mode: 'expense' | 'khata'): SmartParseResult {
@@ -470,9 +475,13 @@ Return strict JSON with:
 
     const systemPrompt = `You are TrackKaro AI, a warm, intelligent personal financial Action Assistant for users in India.
 Current year is 2026 (today is September 2026).
-Note device release context:
-- iPhone 17 series launched in September 2025.
-- iPhone 18 Pro / 18 Pro Max launched in September 2026.
+Note current smartphone retail pricing context in India (September 2026):
+- Apple iPhone 18 Pro (256GB): Launched at ₹1,64,900 (Croma/Apple official price; ₹7,000 instant bank discount available on ICICI/HDFC). Pro models start at 256GB (no 128GB variant).
+- Apple iPhone 18 Pro Max (256GB): Launched at ₹1,79,900 (with ₹7,000 bank discount).
+- Apple iPhone 18 Pro (512GB): ₹1,89,900.
+- Apple iPhone 17 Pro (256GB): MRP ₹1,34,900, currently discounted to ₹1,30,490 on Croma.
+- Apple iPhone 17 Pro Max (256GB): MRP ₹1,49,900, currently ₹1,43,990 on Croma.
+- Apple iPhone 17 (128GB): MRP ₹79,900.
 Current user real-time financial snapshot:
 - Current balance: ${formatINR(snapshot.currentBalance)}
 - Upcoming pending bills: ${formatINR(snapshot.upcomingBills)} (${snapshot.pendingReminders.length} bills pending)
@@ -554,9 +563,13 @@ And suggest looking for alternatives under ${formatINR(snapshot.safeSpendingLimi
 
     const systemPrompt = `You are TrackKaro AI, a warm, intelligent personal financial Action Assistant for users in India.
 Current year is 2026 (today is September 2026).
-Note device release context:
-- iPhone 17 series launched in September 2025.
-- iPhone 18 Pro / 18 Pro Max launched in September 2026.
+Note current smartphone retail pricing context in India (September 2026):
+- Apple iPhone 18 Pro (256GB): Launched at ₹1,64,900 (Croma/Apple official price; ₹7,000 instant bank discount available on ICICI/HDFC). Pro models start at 256GB (no 128GB variant).
+- Apple iPhone 18 Pro Max (256GB): Launched at ₹1,79,900 (with ₹7,000 bank discount).
+- Apple iPhone 18 Pro (512GB): ₹1,89,900.
+- Apple iPhone 17 Pro (256GB): MRP ₹1,34,900, currently discounted to ₹1,30,490 on Croma.
+- Apple iPhone 17 Pro Max (256GB): MRP ₹1,49,900, currently ₹1,43,990 on Croma.
+- Apple iPhone 17 (128GB): MRP ₹79,900.
 Current user real-time financial snapshot:
 - Current balance: ${formatINR(snapshot.currentBalance)}
 - Upcoming pending bills: ${formatINR(snapshot.upcomingBills)} (${snapshot.pendingReminders.length} bills pending)
@@ -581,36 +594,45 @@ And suggest looking for alternatives under ${formatINR(snapshot.safeSpendingLimi
 3. Keep replies structured, concise, friendly, and actionable with clear bullet points.
 4. If asked about deals or coupons, recommend checking the Deals tab for verified discounts.`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const candidateModels = ['gemini-3.6-flash', 'gemini-2.5-flash'];
+    for (const model of candidateModels) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [{ text: systemPrompt }],
+            },
+            contents: [
+              {
+                role: 'user',
+                parts: [{ text: userText }],
+              },
+            ],
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 350,
+            },
+          }),
+        });
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: systemPrompt }],
-        },
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: userText }],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 350,
-        },
-      }),
-    });
-
-    if (!res.ok) {
-      const errBody = await res.text();
-      throw new Error(`Gemini HTTP ${res.status}: ${errBody}`);
+        if (res.ok) {
+          const data = await res.json();
+          const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (candidateText?.trim()) {
+            return candidateText.trim();
+          }
+        } else {
+          this.logger.warn(`Gemini (${model}) Assistant HTTP ${res.status}`);
+        }
+      } catch (err) {
+        this.logger.warn(`Gemini (${model}) Assistant error: ${err}`);
+      }
     }
 
-    const data = await res.json();
-    const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    return candidateText?.trim() || null;
+    return null;
   }
 
   /**
@@ -848,56 +870,74 @@ And suggest looking for alternatives under ${formatINR(snapshot.safeSpendingLimi
 }
 Return ONLY valid JSON with no markdown wrapping or extra comments.`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: prompt },
+    const candidateModels = ['gemini-2.5-flash', 'gemini-3.6-flash'];
+    for (const model of candidateModels) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
               {
-                inlineData: {
-                  mimeType: mimeType || 'image/jpeg',
-                  data: base64Data,
-                },
+                parts: [
+                  { text: prompt },
+                  {
+                    inlineData: {
+                      mimeType: mimeType || 'image/jpeg',
+                      data: base64Data,
+                    },
+                  },
+                ],
               },
             ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.1,
-          responseMimeType: 'application/json',
-        },
-      }),
-    });
+            generationConfig: {
+              temperature: 0.1,
+              responseMimeType: 'application/json',
+            },
+          }),
+        });
 
-    if (!res.ok) {
-      const errBody = await res.text();
-      throw new Error(`Gemini Vision HTTP ${res.status}: ${errBody}`);
+        if (res.ok) {
+          const data = await res.json();
+          const rawJson = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (rawJson) {
+            const parsed = JSON.parse(rawJson);
+            return {
+              merchant: String(parsed.merchant || 'Merchant Receipt'),
+              amount: Number(parsed.amount) || 0,
+              category: String(parsed.category || 'Other'),
+              date: String(parsed.date || new Date().toISOString().split('T')[0]),
+            };
+          }
+        }
+      } catch {
+        continue;
+      }
     }
-
-    const data = await res.json();
-    const rawJson = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!rawJson) return null;
-
-    try {
-      const parsed = JSON.parse(rawJson);
-      return {
-        merchant: String(parsed.merchant || 'Merchant Receipt'),
-        amount: Number(parsed.amount) || 0,
-        category: String(parsed.category || 'Other'),
-        date: String(parsed.date || new Date().toISOString().split('T')[0]),
-      };
-    } catch {
-      return null;
-    }
+    return null;
   }
 
   /**
-   * Fallback rule-based reply generator when GEMINI_API_KEY is not set or fails.
+   * Explains TrackKaro scope and guides users to Google for market price searches.
+   */
+  private async replyPriceLookupGuide(userId: string): Promise<string> {
+    const snapshot = await this.getFinancialSnapshot(userId);
+    return (
+      `🔍 **TrackKaro is your Personal Finance & Budget Assistant**, not a real-time shopping search engine.\n\n` +
+      `For live market prices, retailer comparisons, or product searches, please do a quick **Google search** or check **Amazon**, **Flipkart**, or **Croma** directly!\n\n` +
+      `💡 **Here is what you can ask me about your finances:**\n` +
+      `• **"How much money can I safely spend?"** (Safe discretionary limit: ${formatINR(snapshot.safeSpendingLimit)})\n` +
+      `• **"Can I afford a ₹50,000 phone?"** (Instant affordability check against your balance)\n` +
+      `• **"What are my upcoming bills?"** (${snapshot.pendingReminders.length} pending bill reminders)\n` +
+      `• **"How much did I spend on Food this month?"**\n` +
+      `• **"Audit my active subscriptions"**\n\n` +
+      `🛍️ You can also explore our **Deals tab** for curated discounts and promo codes!`
+    );
+  }
+
+  /**
+   * Fallback rule-based reply generator when external AI is not set or fails.
    */
   private async generateRuleBasedReply(userId: string, userText: string): Promise<ChatReply> {
     const lower = userText.toLowerCase();
@@ -905,26 +945,25 @@ Return ONLY valid JSON with no markdown wrapping or extra comments.`;
     let actionType: ChatReply['actionType'];
     let payload: unknown;
 
-    if (lower.includes('food')) {
+    if (
+      lower.includes('price') ||
+      lower.includes('cost') ||
+      lower.includes('rate') ||
+      lower.includes('how much') ||
+      lower.includes('best price') ||
+      lower.includes('samsung') ||
+      lower.includes('s24') ||
+      lower.includes('iphone') ||
+      lower.includes('deal') ||
+      lower.includes('discount') ||
+      lower.includes('coupon') ||
+      lower.includes('offer')
+    ) {
+      text = await this.replyPriceLookupGuide(userId);
+    } else if (lower.includes('food')) {
       text = await this.replyFoodSpend(userId);
     } else if (lower.includes('where') && (lower.includes('spending') || lower.includes('most'))) {
       text = await this.replyTopCategories(userId);
-    } else if (
-      lower.includes('nike') ||
-      lower.includes('shoe') ||
-      lower.includes('deal') ||
-      lower.includes('phone') ||
-      lower.includes('laptop')
-    ) {
-      const result = await this.replyDeal(userId, userText);
-      if (result) {
-        text = result.text;
-        actionType = result.actionType;
-        payload = result.payload;
-      } else {
-        text =
-          "I couldn't find a live discounted deal for that specific item right now. You can check the Deals tab or set a target price alert!";
-      }
     } else if (
       lower.includes('remind') ||
       lower.includes('credit card') ||
