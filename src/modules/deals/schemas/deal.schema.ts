@@ -61,6 +61,51 @@ export class Deal {
 
   @Prop()
   dealUrl?: string;
+
+  @Prop()
+  sourceUrl?: string;
+
+  @Prop({ default: 'web_search_grounding' })
+  sourceType?: string;
+
+  @Prop({ default: () => new Date() })
+  verifiedAt?: Date;
+
+  @Prop({ default: () => new Date() })
+  lastCheckedAt?: Date;
+
+  @Prop({ default: true })
+  priceVerified?: boolean;
+
+  @Prop({ default: true })
+  urlVerified?: boolean;
+
+  @Prop({ type: [String], default: [] })
+  offerConditions?: string[];
+
+  @Prop()
+  aiReason?: string;
+
+  @Prop({
+    type: {
+      status: { type: String, enum: ['SAFE', 'WAIT'], default: 'SAFE' },
+      reason: { type: String, default: '' },
+    },
+    default: { status: 'SAFE', reason: '' },
+  })
+  purchaseCheck?: {
+    status: 'SAFE' | 'WAIT';
+    reason: string;
+  };
+
+  @Prop({ default: 0 })
+  dealScore?: number;
+
+  @Prop({ default: 0 })
+  relevanceScore?: number;
+
+  @Prop({ default: 1 })
+  confidence?: number;
 }
 
 export const DealSchema = SchemaFactory.createForClass(Deal);
