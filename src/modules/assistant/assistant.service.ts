@@ -114,7 +114,95 @@ export class AssistantService {
       };
     }
 
+    const lower = userText.toLowerCase();
+
+    // 2. Action AI: Deals / Offers / Specific Product Queries
+    const isDealQuery =
+      lower.includes('deal') ||
+      lower.includes('discount') ||
+      lower.includes('coupon') ||
+      lower.includes('offer') ||
+      lower.includes('iphone') ||
+      lower.includes('samsung') ||
+      lower.includes('macbook') ||
+      lower.includes('laptop') ||
+      lower.includes('nike') ||
+      lower.includes('shoe') ||
+      lower.includes('sneaker');
+
+    if (isDealQuery) {
+      const dealReply = await this.replyDeal(userId, userText);
+      if (dealReply && dealReply.actionType === 'deal_recommendation') {
+        return {
+          id: 'chat-' + Date.now(),
+          sender: 'ai',
+          text: dealReply.text,
+          timestamp: new Date().toISOString(),
+          actionType: dealReply.actionType,
+          payload: dealReply.payload,
+        };
+      }
+    }
+
+    // 3. Action AI: Bill Reminders & Dues
+    const isReminderQuery =
+      lower.includes('remind') ||
+      lower.includes('bill due') ||
+      lower.includes('pending bill') ||
+      lower.includes('upcoming bill') ||
+      lower.includes('bill reminder');
+
+    if (isReminderQuery) {
+      const reminderReply = await this.replyReminder(userId);
+      if (reminderReply && reminderReply.actionType) {
+        return {
+          id: 'chat-' + Date.now(),
+          sender: 'ai',
+          text: reminderReply.text,
+          timestamp: new Date().toISOString(),
+          actionType: reminderReply.actionType,
+          payload: reminderReply.payload,
+        };
+      }
+    }
+
+    // 4. Action AI: Subscription Audit
+    const isSubscriptionQuery =
+      lower.includes('subscription') || lower.includes('duplicate sub') || lower.includes('unused sub');
+
+    if (isSubscriptionQuery) {
+      const subReply = await this.replySubscriptions(userId);
+      if (subReply && subReply.actionType) {
+        return {
+          id: 'chat-' + Date.now(),
+          sender: 'ai',
+          text: subReply.text,
+          timestamp: new Date().toISOString(),
+          actionType: subReply.actionType,
+          payload: subReply.payload,
+        };
+      }
+    }
+
+    const openaiKey = this.configService.get<string>('openaiApiKey') || process.env.OPENAI_API_KEY;
     const geminiKey = this.configService.get<string>('geminiApiKey') || process.env.GEMINI_API_KEY;
+
+    if (openaiKey) {
+      try {
+        const openaiReply = await this.callOpenAIAssistant(userId, userText, openaiKey);
+        if (openaiReply) {
+          return {
+            id: 'chat-' + Date.now(),
+            sender: 'ai',
+            text: openaiReply,
+            timestamp: new Date().toISOString(),
+          };
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`OpenAI Assistant call failed, falling back to Gemini: ${message}`);
+      }
+    }
 
     if (geminiKey) {
       try {
@@ -353,6 +441,90 @@ Return strict JSON with:
   }
 
   /**
+   * Calls OpenAI GPT-4o-mini with live user financial context.
+   */
+  private async callOpenAIAssistant(
+    userId: string,
+    userText: string,
+    apiKey: string,
+  ): Promise<string | null> {
+    const snapshot = await this.getFinancialSnapshot(userId);
+
+    const { items } = await this.transactionsService.findAll(userId, {
+      type: 'expense',
+      page: 1,
+      limit: 100,
+    });
+
+    const byCategory = new Map<string, number>();
+    for (const tx of items) {
+      byCategory.set(tx.category, (byCategory.get(tx.category) ?? 0) + tx.amount);
+    }
+    const topCategories = [...byCategory.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, TOP_CATEGORY_COUNT)
+      .map(([cat, amt]) => `${cat}: ${formatINR(amt)}`)
+      .join(', ');
+
+    const subs = await this.subscriptionsService.findAll(userId);
+
+    const systemPrompt = `You are TrackKaro AI, a warm, intelligent personal financial Action Assistant for users in India.
+Current year is 2026 (today is September 2026).
+Note device release context:
+- iPhone 17 series launched in September 2025.
+- iPhone 18 Pro / 18 Pro Max launched in September 2026.
+Current user real-time financial snapshot:
+- Current balance: ${formatINR(snapshot.currentBalance)}
+- Upcoming pending bills: ${formatINR(snapshot.upcomingBills)} (${snapshot.pendingReminders.length} bills pending)
+- Total monthly budget: ${formatINR(snapshot.totalBudget)}
+- Budget remaining: ${formatINR(snapshot.budgetRemaining)}
+- Safe discretionary spending limit: ${formatINR(snapshot.safeSpendingLimit)}
+- Total spent this month: ${formatINR(snapshot.totalSpentThisMonth)}
+- Top spending categories: ${topCategories || 'None recorded yet'}
+- Active subscriptions: ${subs.length}
+
+Guidelines:
+1. Always use Indian Rupee (₹) and Indian currency conventions.
+2. When the user asks if they can afford an item (e.g. "Can I afford a ₹20,000 phone?"), analyze their safe spending limit (${formatINR(snapshot.safeSpendingLimit)}) vs the requested price.
+If price > safe spending limit, say:
+"Yes, but I'd recommend waiting.
+Current balance: ${formatINR(snapshot.currentBalance)}
+Upcoming bills: ${formatINR(snapshot.upcomingBills)}
+Budget remaining: ${formatINR(snapshot.budgetRemaining)}
+Safe spending limit: ${formatINR(snapshot.safeSpendingLimit)}
+⚠️ That would exceed your safe discretionary budget."
+And suggest looking for alternatives under ${formatINR(snapshot.safeSpendingLimit)}.
+3. Keep replies structured, concise, friendly, and actionable with clear bullet points.
+4. If asked about deals or coupons, recommend checking the Deals tab for verified discounts.`;
+
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userText },
+        ],
+        temperature: 0.7,
+        max_tokens: 450,
+      }),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text();
+      throw new Error(`OpenAI HTTP ${res.status}: ${errBody}`);
+    }
+
+    const data = await res.json();
+    const candidateText = data?.choices?.[0]?.message?.content;
+    return candidateText?.trim() || null;
+  }
+
+  /**
    * Calls Google Gemini 1.5 Flash with live user financial context.
    */
   private async callGeminiAssistant(
@@ -381,6 +553,10 @@ Return strict JSON with:
     const subs = await this.subscriptionsService.findAll(userId);
 
     const systemPrompt = `You are TrackKaro AI, a warm, intelligent personal financial Action Assistant for users in India.
+Current year is 2026 (today is September 2026).
+Note device release context:
+- iPhone 17 series launched in September 2025.
+- iPhone 18 Pro / 18 Pro Max launched in September 2026.
 Current user real-time financial snapshot:
 - Current balance: ${formatINR(snapshot.currentBalance)}
 - Upcoming pending bills: ${formatINR(snapshot.upcomingBills)} (${snapshot.pendingReminders.length} bills pending)
@@ -741,9 +917,14 @@ Return ONLY valid JSON with no markdown wrapping or extra comments.`;
       lower.includes('laptop')
     ) {
       const result = await this.replyDeal(userId, userText);
-      text = result.text;
-      actionType = result.actionType;
-      payload = result.payload;
+      if (result) {
+        text = result.text;
+        actionType = result.actionType;
+        payload = result.payload;
+      } else {
+        text =
+          "I couldn't find a live discounted deal for that specific item right now. You can check the Deals tab or set a target price alert!";
+      }
     } else if (
       lower.includes('remind') ||
       lower.includes('credit card') ||
@@ -808,22 +989,44 @@ Return ONLY valid JSON with no markdown wrapping or extra comments.`;
     return `💡 Your highest spending categories are:\n${lines.join('\n')}`;
   }
 
+  private extractProductQuery(userText: string): string {
+    let q = (userText || '').toLowerCase().trim();
+    q = q.replace(/[?!.,;:]/g, ' ');
+    q = q
+      .replace(
+        /\b(what('?s| is)?|how much( is)?|tell me|find( me)?|show( me)?|give me|check|search for|any)\b/gi,
+        ' ',
+      )
+      .replace(
+        /\b(the )?(best|lowest|cheapest|latest|top|good|discounted|special)?\b/gi,
+        ' ',
+      )
+      .replace(
+        /\b(price|prices|pricing|deal|deals|offer|offers|discount|discounts|coupon|coupons|rate|rates|cost|costs)\b/gi,
+        ' ',
+      )
+      .replace(/\b(for|of|on|in|about|at|with)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return q;
+  }
+
   private async replyDeal(
     userId: string,
     query?: string,
-  ): Promise<Pick<ChatReply, 'text' | 'actionType' | 'payload'>> {
+  ): Promise<Pick<ChatReply, 'text' | 'actionType' | 'payload'> | null> {
     const rawQ = (query || '').toLowerCase().trim();
-    const cleanQ = rawQ
-      .replace(/^(best\s+)?(deal|deals|offer|offers|discount|discounts)(\s+for|\s+on|\s+in)?\s+/i, '')
-      .replace(/^(find|show|give|get)(\s+me)?\s+(the\s+)?(best\s+)?(deal|deals|offer|offers)?(\s+for|\s+on)?\s+/i, '')
-      .trim();
+    const cleanQ = this.extractProductQuery(rawQ);
+    const keywords = cleanQ.split(/\s+/).filter((w) => w.length > 1);
 
     let deals = await this.dealsService.findAll(userId);
 
-    // 1. High priority: match specific product title (e.g. "iphone 15", "macbook air")
+    // 1. High priority: match specific product title (e.g. "iphone 17", "macbook air")
     let topDeal = deals.find((d) => {
       const t = d.title.toLowerCase();
-      return cleanQ.length > 2 && t.includes(cleanQ);
+      if (cleanQ.length > 2 && t.includes(cleanQ)) return true;
+      if (keywords.length > 0 && keywords.every((kw) => t.includes(kw))) return true;
+      return false;
     });
 
     // 2. If no exact match and user asked for a specific product, search live via AI!
@@ -832,15 +1035,20 @@ Return ONLY valid JSON with no markdown wrapping or extra comments.`;
         const freshDeals = await this.dealsService.findRealDealsWithAI(userId, cleanQ);
         if (freshDeals && freshDeals.length > 0) {
           deals = freshDeals;
-          topDeal = deals.find((d) => d.title.toLowerCase().includes(cleanQ)) || deals[0];
+          topDeal = deals.find((d) => {
+            const t = d.title.toLowerCase();
+            if (t.includes(cleanQ)) return true;
+            if (keywords.length > 0 && keywords.every((kw) => t.includes(kw))) return true;
+            return false;
+          });
         }
       } catch {
         // fallback to local search
       }
     }
 
-    // 3. Category / keyword fallback if no specific product matched
-    if (!topDeal) {
+    // 3. Category / keyword fallback ONLY if user did not ask for a specific named item
+    if (!topDeal && cleanQ.length === 0) {
       topDeal = deals.find((d) => {
         const t = d.title.toLowerCase();
         const c = (d.category || '').toLowerCase();
@@ -860,10 +1068,12 @@ Return ONLY valid JSON with no markdown wrapping or extra comments.`;
       });
     }
 
+    // 4. If user asked for a specific product and no authentic deal matches, return null.
+    // This allows Gemini Assistant to converse naturally with authentic retail pricing
+    // rather than showing a random unrelated product (like a shirt or shoes).
     if (!topDeal) {
-      topDeal = deals.find((d) => d.title.toLowerCase().includes('nike')) ?? deals[0];
+      return null;
     }
-    if (!topDeal) return { text: "I couldn't find any deals to recommend right now." };
 
     const text =
       `🛍️ I found a great deal on ${topDeal.platform}!\n` +

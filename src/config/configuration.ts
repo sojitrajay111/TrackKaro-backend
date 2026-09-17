@@ -9,6 +9,7 @@ export interface AppConfig {
   };
   corsOrigins: string[];
   geminiApiKey: string;
+  openaiApiKey: string;
 }
 
 export default (): AppConfig => ({
@@ -25,4 +26,5 @@ export default (): AppConfig => ({
     .map((origin) => origin.trim())
     .filter(Boolean),
   geminiApiKey: process.env.GEMINI_API_KEY ?? '',
+  openaiApiKey: process.env.OPENAI_API_KEY ?? '',
 });

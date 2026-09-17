@@ -29,6 +29,10 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   GEMINI_API_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  OPENAI_API_KEY?: string;
 }
 
 /** Validates process.env at bootstrap so a misconfigured deploy fails fast instead of at first request. */
