@@ -49,6 +49,7 @@ TrackKaro-backend/
 │   ├── modules/
 │   │   ├── auth/                # Login, registration, token refresh
 │   │   ├── users/               # User profile management
+│   │   ├── account/             # Full account data wipe (GDPR-style erasure)
 │   │   ├── transactions/        # Expenses, income, category metrics
 │   │   ├── khata/               # Digital Bahi Khata ledgers & customers
 │   │   ├── groups/              # Shared expense groups & debt simplification
@@ -130,6 +131,7 @@ npm run test:e2e
 | `POST` | `/auth/register` | Register new user account |
 | `POST` | `/auth/login` | Log in and receive access + refresh tokens |
 | `POST` | `/auth/refresh` | Rotate access token using valid refresh token |
+| `DELETE` | `/account/data` | Permanently wipe all data owned by the authenticated user |
 | `GET` | `/transactions` | List all user transactions (filtered by category, date) |
 | `POST` | `/transactions` | Create a new transaction |
 | `GET` | `/khata` | Fetch customer ledgers and balances |
