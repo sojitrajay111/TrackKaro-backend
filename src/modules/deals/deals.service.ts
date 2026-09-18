@@ -106,6 +106,32 @@ export class DealsService {
     return docs.map((doc) => this.toPublic(doc));
   }
 
+  /** Lean projection of tracked deals for savings aggregation — separate from `findAll`'s
+   * PublicDeal mapping so `createdAt` doesn't have to ripple through the public API shape. */
+  async findTrackedForSavings(userId: string): Promise<
+    Array<{
+      savingsAmountMinor: number;
+      couponCode?: string;
+      cashbackText?: string;
+      currentPriceMinor: number;
+      discountPercent: number;
+      createdAt: Date;
+    }>
+  > {
+    const docs = await this.dealModel
+      .find({ userId, tracked: true })
+      .select('savingsAmountMinor couponCode cashbackText currentPriceMinor discountPercent createdAt')
+      .exec();
+    return docs.map((d) => ({
+      savingsAmountMinor: d.savingsAmountMinor,
+      couponCode: d.couponCode,
+      cashbackText: d.cashbackText,
+      currentPriceMinor: d.currentPriceMinor,
+      discountPercent: d.discountPercent,
+      createdAt: d.createdAt,
+    }));
+  }
+
   async toggleTrack(userId: string, id: string, targetPrice?: number): Promise<PublicDeal> {
     const deal = await this.dealModel.findOne({ _id: id, userId }).exec();
     if (!deal) throw new NotFoundException('Deal not found');

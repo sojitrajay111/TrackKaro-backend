@@ -78,7 +78,7 @@ describe('BudgetsService.checkThreshold', () => {
     const userId = freshUserId();
     await budgetsService.upsert(userId, 'Travel', 1000); // ₹1000 limit
 
-    // Simulate ₹700 already spent in this category from earlier transactions.
+    // Simulate ₹700 already spent in this category from earlier transactions in current month.
     await transactionModel.create({
       userId,
       title: 'Flight',
@@ -86,7 +86,7 @@ describe('BudgetsService.checkThreshold', () => {
       amountMinor: 700_00,
       type: 'expense',
       category: 'Travel',
-      date: '2026-01-01',
+      date: new Date().toISOString(),
       paymentMethod: 'UPI',
     });
 
@@ -96,6 +96,19 @@ describe('BudgetsService.checkThreshold', () => {
     const notifications = await notificationsService.findAll(userId);
     expect(notifications).toHaveLength(1);
     expect(notifications[0].title).toContain('Exceeded');
+  });
+
+  it('does not send duplicate alerts on subsequent transactions once threshold is crossed', async () => {
+    const userId = freshUserId();
+    await budgetsService.upsert(userId, 'Food', 1000); // ₹1000 limit
+
+    // First transaction crosses 85%
+    await budgetsService.checkThreshold(userId, 'Food', 850_00);
+    expect(await notificationsService.findAll(userId)).toHaveLength(1);
+
+    // Second transaction still in near-limit range (87%) should NOT create duplicate alert
+    await budgetsService.checkThreshold(userId, 'Food', 20_00);
+    expect(await notificationsService.findAll(userId)).toHaveLength(1);
   });
 
   it('never fires when the limit is 0 (budget effectively disabled)', async () => {

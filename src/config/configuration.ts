@@ -10,6 +10,10 @@ export interface AppConfig {
   corsOrigins: string[];
   geminiApiKey: string;
   openaiApiKey: string;
+  email: {
+    user: string;
+    passcode: string;
+  };
 }
 
 export default (): AppConfig => ({
@@ -27,4 +31,8 @@ export default (): AppConfig => ({
     .filter(Boolean),
   geminiApiKey: process.env.GEMINI_API_KEY ?? '',
   openaiApiKey: process.env.OPENAI_API_KEY ?? '',
+  email: {
+    user: process.env.EMAIL_USER ?? '',
+    passcode: process.env.EMAIL_PASSCODE ?? '',
+  },
 });

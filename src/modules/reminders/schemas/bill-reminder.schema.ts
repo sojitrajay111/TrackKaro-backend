@@ -37,6 +37,11 @@ export class BillReminder {
 
   @Prop()
   notes?: string;
+
+  /** Set the moment status flips to 'paid' (and cleared if reverted to 'pending') so a real
+   * on-time-payment rate can be computed later — dueDate/reminderDate alone can't tell us that. */
+  @Prop()
+  paidAt?: Date;
 }
 
 export const BillReminderSchema = SchemaFactory.createForClass(BillReminder);

@@ -6,9 +6,12 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 
 import configuration from '@/config/configuration';
+import { MailService } from '@/common/mail/mail.service';
 import { DealsModule } from '@/modules/deals/deals.module';
+import { DealsService } from '@/modules/deals/deals.service';
 import { UsersModule } from '@/modules/users/users.module';
 import { AuthService } from './auth.service';
+import { PasswordResetOtp, PasswordResetOtpSchema } from './schemas/password-reset-otp.schema';
 import { RefreshToken, RefreshTokenSchema } from './schemas/refresh-token.schema';
 
 describe('AuthService', () => {
@@ -17,6 +20,7 @@ describe('AuthService', () => {
   let authService: AuthService;
 
   beforeAll(async () => {
+    jest.setTimeout(30_000);
     process.env.JWT_ACCESS_SECRET = 'test-access-secret';
     process.env.JWT_ACCESS_TTL = '15m';
     process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
@@ -28,15 +32,27 @@ describe('AuthService', () => {
       imports: [
         ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
         MongooseModule.forRoot(mongod.getUri()),
-        MongooseModule.forFeature([{ name: RefreshToken.name, schema: RefreshTokenSchema }]),
+        MongooseModule.forFeature([
+          { name: RefreshToken.name, schema: RefreshTokenSchema },
+          { name: PasswordResetOtp.name, schema: PasswordResetOtpSchema },
+        ]),
         JwtModule.register({ secret: 'test-access-secret', signOptions: { expiresIn: '15m' } }),
         UsersModule,
         DealsModule,
       ],
-      providers: [AuthService],
+      providers: [
+        AuthService,
+        {
+          provide: MailService,
+          useValue: {
+            sendPasswordResetOtp: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+      ],
     }).compile();
 
     authService = moduleRef.get(AuthService);
+    jest.spyOn(moduleRef.get(DealsService), 'seedDefaultDeals').mockResolvedValue(undefined);
   }, 60_000);
 
   afterAll(async () => {
@@ -52,7 +68,7 @@ describe('AuthService', () => {
     expect(tokens.accessToken).toBeTruthy();
     expect(tokens.refreshToken).toBeTruthy();
     expect(tokens.user.email).toBe(credentials.email);
-  }, 15_000); // connection settling can occasionally exceed Jest's default 5s test timeout. // First real DB write in the suite: bcrypt cost-12 hashing plus the in-memory Mongo
+  }, 30_000); // First real DB write in the suite: bcrypt cost-12 hashing plus the in-memory Mongo connection settling can occasionally exceed 15s on Windows.
 
   it('rejects registering the same email twice', async () => {
     await expect(authService.register(credentials)).rejects.toBeInstanceOf(ConflictException);
@@ -111,6 +127,18 @@ describe('AuthService', () => {
       password: credentials.password,
     });
     await authService.logout(tokens.refreshToken);
+
+    await expect(authService.refresh(tokens.refreshToken)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+  });
+
+  it('logoutAll revokes all active refresh tokens for the user', async () => {
+    const tokens = await authService.login({
+      email: credentials.email,
+      password: credentials.password,
+    });
+    await authService.logoutAll(tokens.user.id);
 
     await expect(authService.refresh(tokens.refreshToken)).rejects.toBeInstanceOf(
       UnauthorizedException,

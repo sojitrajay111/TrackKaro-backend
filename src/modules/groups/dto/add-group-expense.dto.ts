@@ -6,6 +6,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Max,
   Min,
   MinLength,
   ValidateNested,
@@ -21,6 +22,7 @@ class GroupSplitInputDto {
   /** Rupees — converted to integer paise at the service boundary. */
   @IsNumber()
   @Min(0)
+  @Max(100_000_000)
   amount!: number;
 }
 
@@ -32,6 +34,7 @@ export class AddGroupExpenseDto {
   /** Rupees — converted to integer paise at the service boundary. */
   @IsNumber()
   @Min(0)
+  @Max(100_000_000)
   totalAmount!: number;
 
   @IsString()

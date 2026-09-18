@@ -19,6 +19,12 @@ export interface PublicReminder {
   notes?: string;
 }
 
+export interface ReminderStats {
+  /** Percentage of paid bills settled on/before their due date, or null with too little
+   * history (fewer than 3 paid bills) to make the figure meaningful. */
+  onTimeRate: number | null;
+}
+
 @Injectable()
 export class RemindersService {
   constructor(
@@ -51,11 +57,34 @@ export class RemindersService {
       delete patch.amount;
     }
 
+    if (dto.status) {
+      const existing = await this.reminderModel.findOne({ _id: id, userId }).exec();
+      if (existing && existing.status !== dto.status) {
+        // Record (or clear) the moment it was actually settled — the only way to later tell
+        // whether it was paid on time, since dueDate/reminderDate don't capture that.
+        patch.paidAt = dto.status === 'paid' ? new Date() : undefined;
+      }
+    }
+
     const doc = await this.reminderModel
       .findOneAndUpdate({ _id: id, userId }, patch, { new: true })
       .exec();
     if (!doc) throw new NotFoundException('Reminder not found');
     return this.toPublic(doc);
+  }
+
+  private static readonly MIN_PAID_FOR_RATE = 3;
+
+  async getStats(userId: string): Promise<ReminderStats> {
+    const paid = await this.reminderModel.find({ userId, status: 'paid', paidAt: { $exists: true } }).exec();
+    if (paid.length < RemindersService.MIN_PAID_FOR_RATE) {
+      return { onTimeRate: null };
+    }
+
+    // Compare calendar dates (YYYY-MM-DD) rather than exact timestamps — dueDate has no time
+    // component, so paying at 11pm on the due date must still count as on time.
+    const onTime = paid.filter((r) => r.paidAt && r.paidAt.toISOString().slice(0, 10) <= r.dueDate).length;
+    return { onTimeRate: Math.round((onTime / paid.length) * 100) };
   }
 
   async remove(userId: string, id: string): Promise<void> {

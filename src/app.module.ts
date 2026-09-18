@@ -6,6 +6,7 @@ import { APP_GUARD } from '@nestjs/core';
 import configuration from '@/config/configuration';
 import { validate } from '@/config/env.validation';
 import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
+import { MailModule } from '@/common/mail/mail.module';
 import { DatabaseModule } from '@/database/database.module';
 import { AuthModule } from '@/modules/auth/auth.module';
 import { BudgetsModule } from '@/modules/budgets/budgets.module';
@@ -30,6 +31,7 @@ import { UsersModule } from '@/modules/users/users.module';
       validate,
     }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
+    MailModule,
     DatabaseModule,
     HealthModule,
     UsersModule,

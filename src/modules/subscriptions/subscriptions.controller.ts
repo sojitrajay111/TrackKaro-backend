@@ -14,6 +14,11 @@ export class SubscriptionsController {
     return this.subscriptionsService.findAll(user.userId);
   }
 
+  @Get('stats')
+  async getStats(@CurrentUser() user: CurrentUserPayload) {
+    return { monthlyChangePercent: await this.subscriptionsService.getMonthlyChangePercent(user.userId) };
+  }
+
   @Post()
   create(@CurrentUser() user: CurrentUserPayload, @Body() dto: CreateSubscriptionDto) {
     return this.subscriptionsService.create(user.userId, dto);

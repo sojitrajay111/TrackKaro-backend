@@ -1,19 +1,32 @@
-import { randomBytes, randomUUID, createHash } from 'crypto';
+import { randomBytes, randomInt, randomUUID, createHash } from 'crypto';
 
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 
 import { AppConfig } from '@/config/configuration';
 import { parseDurationMs } from '@/common/utils/duration.util';
+import { MailService } from '@/common/mail/mail.service';
 import { DealsService } from '@/modules/deals/deals.service';
 import { PublicUser, UsersService } from '@/modules/users/users.service';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { RefreshToken, RefreshTokenDocument } from './schemas/refresh-token.schema';
+import { MAX_VERIFY_ATTEMPTS, PasswordResetOtp, PasswordResetOtpDocument } from './schemas/password-reset-otp.schema';
+
+const OTP_TTL_MS = 10 * 60 * 1000;
 
 export interface AuthTokens {
   accessToken: string;
@@ -28,10 +41,12 @@ const BCRYPT_ROUNDS = 12;
 export class AuthService {
   constructor(
     @InjectModel(RefreshToken.name) private readonly refreshTokenModel: Model<RefreshTokenDocument>,
+    @InjectModel(PasswordResetOtp.name) private readonly passwordResetOtpModel: Model<PasswordResetOtpDocument>,
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService<AppConfig>,
     private readonly dealsService: DealsService,
+    private readonly mailService: MailService,
   ) {}
 
   async register(dto: RegisterDto): Promise<AuthTokens> {
@@ -110,6 +125,68 @@ export class AuthService {
   async logout(refreshTokenValue: string): Promise<{ success: true }> {
     const tokenHash = this.hashToken(refreshTokenValue);
     await this.refreshTokenModel.updateOne({ tokenHash }, { revoked: true }).exec();
+    return { success: true };
+  }
+
+  async logoutAll(userId: string): Promise<{ success: true }> {
+    await this.refreshTokenModel.updateMany({ userId: new Types.ObjectId(userId) }, { revoked: true }).exec();
+    return { success: true };
+  }
+
+  /** Always reports success regardless of whether the email exists, so this endpoint can't be
+   * used to enumerate registered accounts. */
+  async forgotPassword(dto: ForgotPasswordDto): Promise<{ success: true }> {
+    const email = dto.email.toLowerCase().trim();
+    const user = await this.usersService.findByEmail(email);
+
+    if (user) {
+      const otp = randomInt(0, 1_000_000).toString().padStart(6, '0');
+      await this.passwordResetOtpModel.deleteMany({ email }).exec();
+      await this.passwordResetOtpModel.create({
+        email,
+        otpHash: this.hashToken(otp),
+        expiresAt: new Date(Date.now() + OTP_TTL_MS),
+      });
+      await this.mailService.sendPasswordResetOtp(email, otp);
+    }
+
+    return { success: true };
+  }
+
+  async resetPassword(dto: ResetPasswordDto): Promise<{ success: true }> {
+    const email = dto.email.toLowerCase().trim();
+    const record = await this.passwordResetOtpModel.findOne({ email }).exec();
+
+    if (!record || record.expiresAt.getTime() < Date.now()) {
+      throw new BadRequestException('This code is invalid or has expired. Request a new one.');
+    }
+
+    if (record.attempts >= MAX_VERIFY_ATTEMPTS) {
+      await record.deleteOne();
+      throw new HttpException('Too many incorrect attempts. Request a new code.', HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    if (record.otpHash !== this.hashToken(dto.otp)) {
+      record.attempts += 1;
+      await record.save();
+      throw new BadRequestException('Incorrect code. Please try again.');
+    }
+
+    const user = await this.usersService.findByEmail(email);
+    if (!user) {
+      // The OTP was issued for this email, so the user existed a moment ago — treat as invalid
+      // rather than leaking anything more specific.
+      throw new BadRequestException('This code is invalid or has expired. Request a new one.');
+    }
+
+    user.passwordHash = await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS);
+    await user.save();
+
+    await record.deleteOne();
+    // Resetting the password signs every device out — otherwise a stolen refresh token would
+    // survive the very reset meant to lock an attacker out.
+    await this.refreshTokenModel.updateMany({ userId: user._id }, { revoked: true }).exec();
+
     return { success: true };
   }
 

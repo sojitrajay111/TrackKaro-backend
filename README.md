@@ -6,7 +6,8 @@ The official backend API service for **TrackKaro**, a personal finance, digital 
 
 ## 🌟 Key Features
 
-- **🔐 Robust JWT Authentication:** Access token + refresh token rotation with bcrypt password hashing and token invalidation.
+- **🔐 Robust JWT Authentication:** Access token + refresh token rotation with bcrypt password hashing, stolen-token-reuse detection, and token invalidation.
+- **📧 Email OTP Password Reset:** `/auth/forgot-password` emails a time-limited 6-digit code via Gmail SMTP (nodemailer); `/auth/reset-password` verifies it, updates the password, and revokes every existing session.
 - **📊 Real-Time Financial Transactions:** Complete CRUD for income and expenses with category aggregation, Indian Rupee (`₹`) minor-unit integer precision, and monthly filtering.
 - **📖 Digital Bahi Khata Ledger:** Customer-centric debt and credit ledgers with settlement tracking and transaction history.
 - **👥 Expense Groups & Debt Simplification:** Multi-member expense groups with equal, exact, and percentage splitting, plus a built-in greedy pairwise debt simplification engine to minimize inter-member transactions.
@@ -88,9 +89,15 @@ CORS_ORIGINS=http://localhost:8081,http://localhost:8082,http://localhost:19006,
 
 # Google Gemini AI API Key (Optional — enables Gemini 1.5 Flash features)
 GEMINI_API_KEY=AIzaSy...your_gemini_key_here
+
+# Gmail account used to send "forgot password" OTP emails (Optional — enables password reset)
+EMAIL_USER=youraccount@gmail.com
+EMAIL_PASSCODE=your-16-char-gmail-app-password
 ```
 
 > **Note:** If `GEMINI_API_KEY` is not provided, the server will start normally and seamlessly use rule-based fallback responses for the assistant and receipt scanner.
+>
+> **Note:** `EMAIL_PASSCODE` must be a [Gmail App Password](https://myaccount.google.com/apppasswords) (not your regular Gmail password — Google rejects plain-password SMTP auth). If `EMAIL_USER`/`EMAIL_PASSCODE` are not set, `/auth/forgot-password` will fail with a clear "Email service is not configured" error instead of the app crashing at boot.
 
 ---
 
@@ -131,30 +138,43 @@ npm run test:e2e
 | `POST` | `/auth/register` | Register new user account |
 | `POST` | `/auth/login` | Log in and receive access + refresh tokens |
 | `POST` | `/auth/refresh` | Rotate access token using valid refresh token |
-| `DELETE` | `/account/data` | Permanently wipe all data owned by the authenticated user |
+| `POST` | `/auth/logout` | Revoke a single refresh token |
+| `POST` | `/auth/logout-all` | Revoke all active refresh tokens for the authenticated user |
+| `POST` | `/auth/forgot-password` | Email a 6-digit OTP via Gmail SMTP to reset a forgotten password |
+| `POST` | `/auth/reset-password` | Verify OTP and set a new password (revokes all active sessions) |
+| `GET` | `/users/me` | Fetch currently authenticated user profile |
+| `PATCH` | `/users/me` | Update user profile (`name`, `phone`) |
+| `DELETE` | `/account/data` | Permanently wipe all data owned by the authenticated user (GDPR erasure) |
 | `GET` | `/transactions` | List all user transactions (filtered by category, date) |
-| `POST` | `/transactions` | Create a new transaction |
+| `POST` | `/transactions` | Create a new transaction (with `@Max(100_000_000)` amount validation) |
 | `GET` | `/khata` | Fetch customer ledgers and balances |
 | `POST` | `/khata` | Record a debit or credit khata entry |
 | `GET` | `/groups` | List user's shared expense groups |
 | `POST` | `/groups/:id/expenses` | Add group expense and recalculate debt simplification |
 | `GET` | `/budgets` | Get monthly category budgets and progress |
+| `PUT` | `/budgets/:category` | Upsert monthly budget limit for a category |
 | `GET` | `/reminders` | Fetch pending and paid bill reminders |
+| `GET` | `/reminders/stats` | Fetch live on-time payment rate percentage |
 | `GET` | `/subscriptions` | List recurring subscriptions and redundant services |
+| `GET` | `/subscriptions/stats` | Calculate amortized monthly subscription costs and MoM change % |
 | `GET` | `/deals` | Retrieve promotional deals and price targets |
 | `GET` | `/deals/search?q=:query` | **AI Deal Search:** Find real live deals using Gemini |
 | `GET` | `/savings` | Retrieve real aggregate savings metrics |
+| `GET` | `/savings/metrics` | Retrieve 5-month historical trend, MoM growth %, and computed saver tier |
 | `POST` | `/assistant/messages` | **Gemini AI Copilot:** Ask financial advice |
 | `POST` | `/assistant/scan-bill` | **Gemini Vision OCR:** Extract structured data from receipt image |
 | `GET` | `/health` | Service health status check |
 
 ---
 
-## 🔒 Security Practices
+## 🔒 Security & Quality Practices
 
 - **Zero Client-Side Secret Exposure:** All database URIs, JWT signing secrets, and Gemini API keys are kept strictly on the backend.
 - **Input Sanitization & DTO Validation:** All payloads are validated at the controller boundary using `class-validator` with whitelist stripping enabled.
-- **Throttling & Rate Limiting:** Protected with `@nestjs/throttler` against brute-force attacks.
+- **Financial Bounds Validation:** All transaction, budget, reminder, subscription, and group split amounts are bounded with `@Min(0)` and `@Max(100_000_000)` (100 million rupees / 10 crore) to prevent integer overflow and unrealistic inputs.
+- **Budget Threshold Deduplication:** Category budget threshold notifications are evaluated against current calendar month transactions only (`date: { $regex: ^YYYY-MM }`), with persistent `lastAlertedMonth` and `lastAlertedLevel` state on the budget document to prevent duplicate alert spam on subsequent transactions.
+- **Session Revocation:** Authenticated users can revoke all active refresh tokens with `POST /auth/logout-all`, and password resets automatically terminate all existing sessions.
+- **Throttling & Rate Limiting:** Protected with `@nestjs/throttler` (default 100 req/min, with strict 10 req/min for auth and 5 req/min for OTP endpoints) against brute-force attacks.
 - **Security Headers:** Enforced via `helmet` across all API responses.
 
 ---

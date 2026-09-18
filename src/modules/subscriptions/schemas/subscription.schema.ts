@@ -37,6 +37,8 @@ export class Subscription {
 
   @Prop()
   redundancyReason?: string;
+
+  declare createdAt: Date;
 }
 
 export const SubscriptionSchema = SchemaFactory.createForClass(Subscription);

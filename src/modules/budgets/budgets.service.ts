@@ -57,15 +57,26 @@ export class BudgetsService {
 
   /**
    * Mirrors the original client-side checkBudgetThreshold in app-store.tsx: sums this
-   * category's existing expense transactions, adds the amount about to be recorded, and
-   * fires a notification at 80% (near limit) or 100%+ (exceeded) of the budget.
+   * category's existing expense transactions for the current calendar month, adds the
+   * amount about to be recorded, and fires a notification at 80% (near limit) or 100%+
+   * (exceeded) of the budget without spamming duplicate alerts on subsequent transactions.
    */
   async checkThreshold(userId: string, category: string, newAmountMinor: number): Promise<void> {
     const budget = await this.budgetModel.findOne({ userId, category }).exec();
     if (!budget || budget.limitMinor <= 0) return;
 
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
     const [agg] = await this.transactionModel.aggregate<{ total: number }>([
-      { $match: { userId: new Types.ObjectId(userId), category, type: 'expense' } },
+      {
+        $match: {
+          userId: new Types.ObjectId(userId),
+          category,
+          type: 'expense',
+          date: { $regex: `^${currentMonth}` },
+        },
+      },
       { $group: { _id: null, total: { $sum: '$amountMinor' } } },
     ]);
     const currentSpentMinor = agg?.total ?? 0;
@@ -73,17 +84,32 @@ export class BudgetsService {
     const ratio = totalSpentMinor / budget.limitMinor;
 
     if (ratio >= OVER_BUDGET_RATIO) {
+      if (budget.lastAlertedMonth === currentMonth && budget.lastAlertedLevel === 'exceeded') {
+        return;
+      }
       await this.notificationsService.create(userId, {
         title: `🚨 ${category} Budget Exceeded!`,
         message: `You spent ${formatINR(toMajorUnits(totalSpentMinor))} of your ${formatINR(toMajorUnits(budget.limitMinor))} limit.`,
         type: 'insight',
       });
+      budget.lastAlertedMonth = currentMonth;
+      budget.lastAlertedLevel = 'exceeded';
+      await budget.save();
     } else if (ratio >= NEAR_BUDGET_RATIO) {
+      if (
+        budget.lastAlertedMonth === currentMonth &&
+        (budget.lastAlertedLevel === 'near' || budget.lastAlertedLevel === 'exceeded')
+      ) {
+        return;
+      }
       await this.notificationsService.create(userId, {
         title: `⚠️ ${category} Budget Alert`,
         message: `${category} is at ${Math.round(ratio * 100)}% of limit (${formatINR(toMajorUnits(budget.limitMinor - totalSpentMinor))} left).`,
         type: 'insight',
       });
+      budget.lastAlertedMonth = currentMonth;
+      budget.lastAlertedLevel = 'near';
+      await budget.save();
     }
   }
 }

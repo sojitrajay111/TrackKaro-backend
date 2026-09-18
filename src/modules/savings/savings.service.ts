@@ -1,7 +1,13 @@
 import { Injectable } from '@nestjs/common';
 
+import { toMajorUnits } from '@/common/money/money.util';
 import { DealsService } from '@/modules/deals/deals.service';
 import { SubscriptionsService } from '@/modules/subscriptions/subscriptions.service';
+
+export interface MonthlySavingsPoint {
+  month: string;
+  amount: number;
+}
 
 export interface FullSavingsMetrics {
   totalSaved: number;
@@ -12,11 +18,21 @@ export interface FullSavingsMetrics {
   cashback: number;
   avoidedExpenses: number;
   potentialSavings: number;
+  monthlyHistory: MonthlySavingsPoint[];
 }
 
 const MONTHS_PER_YEAR = 12;
-const PREVIOUS_MONTH_RATIO = 0.85;
 const DEFAULT_CASHBACK = 100;
+const HISTORY_MONTHS = 5;
+
+type TrackedDeal = {
+  savingsAmountMinor: number;
+  couponCode?: string;
+  cashbackText?: string;
+  currentPriceMinor: number;
+  discountPercent: number;
+  createdAt: Date;
+};
 
 @Injectable()
 export class SavingsService {
@@ -25,40 +41,73 @@ export class SavingsService {
     private readonly dealsService: DealsService,
   ) {}
 
-  /** Ports the exact formula from the pre-backend client's savingsMetrics useMemo, now run
-   * against real tracked deals and real subscriptions instead of Context state. */
+  /** Genuine savings, computed from real tracked deals and real redundant subscriptions —
+   * nothing here is a synthetic ratio. Per-month figures are derived by filtering tracked
+   * deals to each deal's own `createdAt`; the redundant-subscription monthly-equivalent is
+   * applied as a flat baseline across months since we don't keep a history of when a
+   * subscription was first flagged redundant. */
   async getFullMetrics(userId: string): Promise<FullSavingsMetrics> {
     const [deals, avoidedExpenses] = await Promise.all([
-      this.dealsService.findAll(userId),
+      this.dealsService.findTrackedForSavings(userId),
       this.subscriptionsService.sumRedundantMonthlyEquivalent(userId),
     ]);
 
-    const tracked = deals.filter((d) => d.tracked);
-
-    const dealSavings = tracked.reduce((acc, d) => acc + (d.savingsAmount || 0), 0);
-
-    const couponSavings = tracked
-      .filter((d) => d.couponCode)
-      .reduce((acc, d) => acc + Math.round((d.currentPrice * d.discountPercent) / 100), 0);
-
-    const cashback = tracked
-      .filter((d) => d.cashbackText)
-      .reduce((acc, d) => {
-        const match = d.cashbackText?.match(/\d+/);
-        return acc + (match ? parseInt(match[0], 10) : DEFAULT_CASHBACK);
-      }, 0);
-
+    const dealSavings = this.sumDealSavings(deals);
+    const couponSavings = this.sumCouponSavings(deals);
+    const cashback = this.sumCashback(deals);
     const totalSaved = dealSavings + couponSavings + cashback + avoidedExpenses;
+
+    const now = new Date();
+    const currentMonthSaved =
+      this.sumDealsInMonth(deals, now.getFullYear(), now.getMonth()) + avoidedExpenses;
+    const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const previousMonthSaved =
+      this.sumDealsInMonth(deals, previousMonth.getFullYear(), previousMonth.getMonth()) +
+      avoidedExpenses;
+
+    const monthlyHistory: MonthlySavingsPoint[] = [];
+    for (let i = HISTORY_MONTHS - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      monthlyHistory.push({
+        month: d.toLocaleDateString('en-US', { month: 'short' }),
+        amount: this.sumDealsInMonth(deals, d.getFullYear(), d.getMonth()) + avoidedExpenses,
+      });
+    }
 
     return {
       totalSaved,
-      currentMonthSaved: totalSaved,
-      previousMonthSaved: Math.round(totalSaved * PREVIOUS_MONTH_RATIO),
+      currentMonthSaved,
+      previousMonthSaved,
       dealSavings,
       couponSavings,
       cashback,
       avoidedExpenses,
       potentialSavings: avoidedExpenses * MONTHS_PER_YEAR,
+      monthlyHistory,
     };
+  }
+
+  private sumDealSavings(deals: TrackedDeal[]): number {
+    return toMajorUnits(deals.reduce((acc, d) => acc + (d.savingsAmountMinor || 0), 0));
+  }
+
+  private sumCouponSavings(deals: TrackedDeal[]): number {
+    return deals
+      .filter((d) => d.couponCode)
+      .reduce((acc, d) => acc + Math.round((toMajorUnits(d.currentPriceMinor) * d.discountPercent) / 100), 0);
+  }
+
+  private sumCashback(deals: TrackedDeal[]): number {
+    return deals
+      .filter((d) => d.cashbackText)
+      .reduce((acc, d) => {
+        const match = d.cashbackText?.match(/\d+/);
+        return acc + (match ? parseInt(match[0], 10) : DEFAULT_CASHBACK);
+      }, 0);
+  }
+
+  private sumDealsInMonth(deals: TrackedDeal[], year: number, month: number): number {
+    const inMonth = deals.filter((d) => d.createdAt.getFullYear() === year && d.createdAt.getMonth() === month);
+    return this.sumDealSavings(inMonth) + this.sumCouponSavings(inMonth) + this.sumCashback(inMonth);
   }
 }

@@ -13,6 +13,12 @@ export class CategoryBudget {
 
   @Prop({ required: true })
   limitMinor!: number;
+
+  @Prop()
+  lastAlertedMonth?: string;
+
+  @Prop({ type: String, enum: ['near', 'exceeded'] })
+  lastAlertedLevel?: 'near' | 'exceeded';
 }
 
 export const CategoryBudgetSchema = SchemaFactory.createForClass(CategoryBudget);

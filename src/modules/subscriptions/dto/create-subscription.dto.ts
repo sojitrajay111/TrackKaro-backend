@@ -5,6 +5,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Max,
   Min,
   MinLength,
 } from 'class-validator';
@@ -23,6 +24,7 @@ export class CreateSubscriptionDto {
   /** Rupees — converted to integer paise at the service boundary. */
   @IsNumber()
   @Min(0)
+  @Max(100_000_000)
   amount!: number;
 
   @IsIn(BILLING_CYCLES)

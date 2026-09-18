@@ -25,6 +25,11 @@ export class RemindersController {
     return this.remindersService.findAll(user.userId);
   }
 
+  @Get('stats')
+  getStats(@CurrentUser() user: CurrentUserPayload) {
+    return this.remindersService.getStats(user.userId);
+  }
+
   @Post()
   create(@CurrentUser() user: CurrentUserPayload, @Body() dto: CreateReminderDto) {
     return this.remindersService.create(user.userId, dto);

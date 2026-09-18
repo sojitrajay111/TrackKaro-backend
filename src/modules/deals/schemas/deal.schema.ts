@@ -106,6 +106,8 @@ export class Deal {
 
   @Prop({ default: 1 })
   confidence?: number;
+
+  declare createdAt: Date;
 }
 
 export const DealSchema = SchemaFactory.createForClass(Deal);

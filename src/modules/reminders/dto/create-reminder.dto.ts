@@ -1,4 +1,4 @@
-import { IsIn, IsISO8601, IsNumber, IsOptional, IsString, Min, MinLength } from 'class-validator';
+import { IsIn, IsISO8601, IsNumber, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
 
 import { CATEGORY_NAMES, CategoryName } from '@/common/constants/categories';
 import { REMINDER_FREQUENCIES, ReminderFrequency } from '../schemas/bill-reminder.schema';
@@ -14,6 +14,7 @@ export class CreateReminderDto {
   /** Rupees — converted to integer paise at the service boundary. */
   @IsNumber()
   @Min(0)
+  @Max(100_000_000)
   amount!: number;
 
   @IsISO8601({ strict: false })

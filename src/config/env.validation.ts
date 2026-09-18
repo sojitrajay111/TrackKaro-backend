@@ -33,6 +33,14 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   OPENAI_API_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  EMAIL_USER?: string;
+
+  @IsOptional()
+  @IsString()
+  EMAIL_PASSCODE?: string;
 }
 
 /** Validates process.env at bootstrap so a misconfigured deploy fails fast instead of at first request. */

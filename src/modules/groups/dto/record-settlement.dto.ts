@@ -1,4 +1,4 @@
-import { IsNumber, IsOptional, IsString, Min, MinLength } from 'class-validator';
+import { IsNumber, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
 
 export class RecordSettlementDto {
   @IsString()
@@ -12,6 +12,7 @@ export class RecordSettlementDto {
   /** Rupees — converted to integer paise at the service boundary. */
   @IsNumber()
   @Min(0.01)
+  @Max(100_000_000)
   amount!: number;
 
   @IsOptional()

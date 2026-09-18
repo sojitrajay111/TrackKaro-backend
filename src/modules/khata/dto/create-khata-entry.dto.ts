@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsIn, IsISO8601, IsNumber, IsOptional, IsString, Min, MinLength } from 'class-validator';
+import { IsIn, IsISO8601, IsNumber, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
 
 import { KHATA_STATUSES, KHATA_TYPES, KhataStatus, KhataType } from '../schemas/khata-entry.schema';
 
@@ -16,6 +16,7 @@ export class CreateKhataEntryDto {
   /** Rupees — converted to integer paise at the service boundary. */
   @IsNumber()
   @Min(0)
+  @Max(100_000_000)
   amount!: number;
 
   @IsIn(KHATA_TYPES)
