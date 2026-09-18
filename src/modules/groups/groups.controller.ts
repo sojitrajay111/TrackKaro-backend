@@ -1,9 +1,10 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post } from '@nestjs/common';
 
 import { CurrentUser, CurrentUserPayload } from '@/common/decorators/current-user.decorator';
 import { ParseObjectIdPipe } from '@/common/pipes/parse-object-id.pipe';
 import { AddGroupExpenseDto } from './dto/add-group-expense.dto';
 import { CreateGroupDto } from './dto/create-group.dto';
+import { UpdateGroupDto } from './dto/update-group.dto';
 import { RecordSettlementDto } from './dto/record-settlement.dto';
 import { GroupsService } from './groups.service';
 
@@ -19,6 +20,15 @@ export class GroupsController {
   @Post()
   create(@CurrentUser() user: CurrentUserPayload, @Body() dto: CreateGroupDto) {
     return this.groupsService.create(user.userId, dto);
+  }
+
+  @Patch(':id')
+  update(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: UpdateGroupDto,
+  ) {
+    return this.groupsService.update(user.userId, id, dto);
   }
 
   @Delete(':id')

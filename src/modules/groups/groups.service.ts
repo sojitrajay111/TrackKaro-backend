@@ -12,6 +12,7 @@ import { Model } from 'mongoose';
 import { toMajorUnits, toMinorUnits } from '@/common/money/money.util';
 import { AddGroupExpenseDto } from './dto/add-group-expense.dto';
 import { CreateGroupDto } from './dto/create-group.dto';
+import { UpdateGroupDto } from './dto/update-group.dto';
 import { RecordSettlementDto } from './dto/record-settlement.dto';
 import { DebtSimplificationService, MemberBalance } from './services/debt-simplification.service';
 import { ExpenseGroup, ExpenseGroupDocument } from './schemas/expense-group.schema';
@@ -105,6 +106,72 @@ export class GroupsService {
       members,
     });
     return this.assemble(group, []);
+  }
+
+  async update(
+    userId: string,
+    groupId: string,
+    dto: UpdateGroupDto,
+  ): Promise<PublicExpenseGroup> {
+    const group = await this.findOwnedGroup(userId, groupId);
+
+    if (dto.name !== undefined) {
+      group.name = dto.name.trim();
+    }
+    if (dto.category !== undefined) {
+      group.category = dto.category;
+    }
+    if (dto.members !== undefined) {
+      const existingMembersMap = new Map(group.members.map((m) => [m.name.toLowerCase(), m]));
+      const newMembers = dto.members.map((m) => {
+        const existing = existingMembersMap.get(m.name.toLowerCase());
+        return {
+          id: existing ? existing.id : randomUUID(),
+          name: m.name.trim(),
+          phone: m.phone?.trim() || existing?.phone,
+          status: existing ? existing.status : ('ghost' as const),
+        };
+      });
+
+      // Ensure "You" is always present in members
+      if (!newMembers.some((m) => m.name.toLowerCase() === 'you')) {
+        newMembers.unshift({
+          id: randomUUID(),
+          name: 'You',
+          phone: undefined,
+          status: 'ghost' as const,
+        });
+      }
+
+      // Check if any deleted member has existing expenses/splits
+      const newMemberNames = new Set(newMembers.map((m) => m.name.toLowerCase()));
+      const expenses = await this.expenseModel.find({ groupId: group._id }).exec();
+      for (const exp of expenses) {
+        if (!newMemberNames.has(exp.paidBy.toLowerCase())) {
+          throw new BadRequestException(
+            `Cannot remove "${exp.paidBy}" because they have recorded expenses in this group.`,
+          );
+        }
+        for (const split of exp.splits) {
+          if (!newMemberNames.has(split.memberName.toLowerCase())) {
+            throw new BadRequestException(
+              `Cannot remove "${split.memberName}" because they are part of expense splits in this group.`,
+            );
+          }
+        }
+      }
+
+      group.members = newMembers as any;
+    }
+
+    await group.save();
+
+    const expenses = await this.expenseModel
+      .find({ groupId: group._id })
+      .sort({ date: -1, createdAt: -1 })
+      .exec();
+
+    return this.assemble(group, expenses);
   }
 
   async remove(userId: string, groupId: string): Promise<void> {
