@@ -654,9 +654,7 @@ export class GroupsService {
       const group = groupById.get(expense.groupId.toString());
       if (!group) continue;
 
-      const myNames = new Set(
-        group.members.filter((m) => m.linkedUserId?.equals(userObjId)).map((m) => m.name),
-      );
+      const myNames = await this.getMyMemberNames(group, userId);
       if (myNames.size === 0) continue;
 
       for (const split of expense.splits) {
@@ -690,10 +688,7 @@ export class GroupsService {
     const expense = await this.expenseModel.findOne({ _id: expenseId, groupId: group._id }).exec();
     if (!expense) throw new NotFoundException('Expense not found');
 
-    const userObjId = new Types.ObjectId(userId);
-    const myNames = new Set(
-      group.members.filter((m) => m.linkedUserId?.equals(userObjId)).map((m) => m.name),
-    );
+    const myNames = await this.getMyMemberNames(group, userId);
 
     const splitIndex = expense.splits.findIndex((s) => myNames.has(s.memberName) && !s.confirmedTransactionId);
     if (splitIndex === -1) {
@@ -721,6 +716,29 @@ export class GroupsService {
     await expense.save();
 
     return transaction;
+  }
+
+  /** The member name(s) in this group that represent `userId` — normally whichever member has
+   * `linkedUserId` set to them. Some groups predate that linking always happening reliably at
+   * creation time, so as a fallback: if this user owns the group and no member is linked to
+   * them at all, treat a member literally named "You" as themselves (and heal the record so
+   * this fallback isn't needed next time). */
+  private async getMyMemberNames(group: ExpenseGroupDocument, userId: string): Promise<Set<string>> {
+    const userObjId = new Types.ObjectId(userId);
+    const linked = group.members.filter((m) => m.linkedUserId?.equals(userObjId));
+    if (linked.length > 0) return new Set(linked.map((m) => m.name));
+
+    if (group.userId.equals(userObjId)) {
+      const youMember = group.members.find((m) => m.name.trim().toLowerCase() === 'you' && !m.linkedUserId);
+      if (youMember) {
+        youMember.linkedUserId = userObjId;
+        youMember.status = 'registered';
+        await group.save();
+        return new Set([youMember.name]);
+      }
+    }
+
+    return new Set();
   }
 
   private async findOwnedGroup(userId: string, groupId: string): Promise<ExpenseGroupDocument> {
