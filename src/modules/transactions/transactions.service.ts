@@ -121,28 +121,55 @@ export class TransactionsService {
     if (!userId) {
       throw new UnauthorizedException('User authentication required');
     }
+
+    const existing = await this.transactionModel
+      .findOne({ _id: new Types.ObjectId(id), userId: new Types.ObjectId(userId) })
+      .exec();
+    if (!existing) throw new NotFoundException('Transaction not found');
+
+    const oldTitle = existing.title;
+    const oldAmount = toMajorUnits(existing.amountMinor);
+    const oldCategory = existing.category;
+    const oldType = existing.type;
+    const oldDate = existing.date;
+
+    const changes: string[] = [];
+    if (dto.title !== undefined && dto.title !== oldTitle) {
+      changes.push(`Title: "${oldTitle}" → "${dto.title}"`);
+    }
+    if (dto.amount !== undefined && toMinorUnits(dto.amount) !== existing.amountMinor) {
+      changes.push(`Amount: ₹${oldAmount} → ₹${dto.amount}`);
+    }
+    if (dto.category !== undefined && dto.category !== oldCategory) {
+      changes.push(`Category: ${oldCategory} → ${dto.category}`);
+    }
+    if (dto.type !== undefined && dto.type !== oldType) {
+      changes.push(`Type: ${oldType} → ${dto.type}`);
+    }
+    if (dto.date !== undefined && dto.date !== oldDate) {
+      changes.push(`Date: ${oldDate} → ${dto.date}`);
+    }
+
     const patch: Record<string, unknown> = { ...dto };
     if (dto.amount !== undefined) {
       patch.amountMinor = toMinorUnits(dto.amount);
       delete patch.amount;
     }
 
-    const doc = await this.transactionModel
-      .findOneAndUpdate(
-        { _id: new Types.ObjectId(id), userId: new Types.ObjectId(userId) },
-        patch,
-        { new: true },
-      )
-      .exec();
-    if (!doc) throw new NotFoundException('Transaction not found');
+    Object.assign(existing, patch);
+    await existing.save();
+
+    const changeSummary = changes.length > 0
+      ? `Updated "${existing.title}":\n• ${changes.join('\n• ')}`
+      : `Updated "${existing.title}" (₹${toMajorUnits(existing.amountMinor)})`;
 
     void this.notificationsService.create(userId, {
-      title: 'Expense Updated',
-      message: `Updated "${doc.title}" (₹${toMajorUnits(doc.amountMinor)})`,
+      title: `Personal Expense Updated: "${existing.title}"`,
+      message: changeSummary,
       type: 'activity',
     }).catch(() => {});
 
-    return this.toPublic(doc);
+    return this.toPublic(existing);
   }
 
   async remove(userId: string, id: string): Promise<void> {
@@ -153,11 +180,14 @@ export class TransactionsService {
     if (!doc) throw new NotFoundException('Transaction not found');
 
     const title = doc.title;
+    const amount = toMajorUnits(doc.amountMinor);
+    const category = doc.category;
+    const date = doc.date;
     await doc.deleteOne();
 
     void this.notificationsService.create(userId, {
-      title: 'Expense Deleted',
-      message: `Deleted "${title}"`,
+      title: `Personal Expense Deleted: "${title}"`,
+      message: `Deleted "${title}":\n• Previous Amount: ₹${amount}\n• Category: ${category}\n• Date: ${date}`,
       type: 'activity',
     }).catch(() => {});
   }

@@ -261,11 +261,41 @@ export class GroupsService {
       }
     }
 
-    if (dto.title !== undefined) expense.title = dto.title;
-    if (dto.paidBy !== undefined) expense.paidBy = dto.paidBy;
-    if (dto.date !== undefined) expense.date = dto.date;
-    if (dto.splitType !== undefined) expense.splitType = dto.splitType;
-    if (dto.notes !== undefined) expense.notes = dto.notes;
+    const oldTitle = expense.title;
+    const oldAmount = toMajorUnits(expense.totalAmountMinor);
+    const oldPaidBy = expense.paidBy;
+    const oldDate = expense.date;
+    const oldSplitType = expense.splitType || 'equal';
+    const oldSplits = (expense.splits || []).map((s) => ({
+      memberName: s.memberName,
+      amount: toMajorUnits(s.amountMinor),
+    }));
+
+    const changes: string[] = [];
+
+    if (dto.title !== undefined && dto.title !== oldTitle) {
+      changes.push(`Title: "${oldTitle}" → "${dto.title}"`);
+      expense.title = dto.title;
+    }
+    if (dto.totalAmount !== undefined && dto.totalAmount !== oldAmount) {
+      changes.push(`Amount: ₹${oldAmount} → ₹${dto.totalAmount}`);
+    }
+    if (dto.paidBy !== undefined && dto.paidBy !== oldPaidBy) {
+      changes.push(`Paid by: ${oldPaidBy} → ${dto.paidBy}`);
+      expense.paidBy = dto.paidBy;
+    }
+    if (dto.date !== undefined && dto.date !== oldDate) {
+      changes.push(`Date: ${oldDate} → ${dto.date}`);
+      expense.date = dto.date;
+    }
+    if (dto.splitType !== undefined && dto.splitType !== oldSplitType) {
+      changes.push(`Split Type: ${oldSplitType} → ${dto.splitType}`);
+      expense.splitType = dto.splitType;
+    }
+    if (dto.notes !== undefined && dto.notes !== expense.notes) {
+      changes.push(`Notes: ${expense.notes || 'none'} → ${dto.notes || 'none'}`);
+      expense.notes = dto.notes;
+    }
 
     if (dto.totalAmount !== undefined || dto.splits !== undefined) {
       const totalAmountMinor = dto.totalAmount !== undefined ? toMinorUnits(dto.totalAmount) : expense.totalAmountMinor;
@@ -281,15 +311,43 @@ export class GroupsService {
         throw new BadRequestException('Split amounts must add up to the total bill amount.');
       }
 
+      // Compute split diffs
+      if (dto.splits !== undefined) {
+        const oldMap = new Map(oldSplits.map((s) => [s.memberName, s.amount]));
+        const newMap = new Map(dto.splits.map((s) => [s.memberName, s.amount]));
+
+        const splitChanges: string[] = [];
+        for (const [member, newAmt] of newMap.entries()) {
+          const prevAmt = oldMap.get(member);
+          if (prevAmt === undefined) {
+            splitChanges.push(`+${member} added (₹${newAmt})`);
+          } else if (Math.abs(prevAmt - newAmt) > 0.01) {
+            splitChanges.push(`${member}: ₹${prevAmt} → ₹${newAmt}`);
+          }
+        }
+        for (const [member, prevAmt] of oldMap.entries()) {
+          if (!newMap.has(member)) {
+            splitChanges.push(`-${member} removed (was ₹${prevAmt})`);
+          }
+        }
+        if (splitChanges.length > 0) {
+          changes.push(`Splits: ${splitChanges.join(', ')}`);
+        }
+      }
+
       expense.totalAmountMinor = totalAmountMinor;
       expense.splits = splitsMinor as any;
     }
 
     await expense.save();
 
+    const changeSummary = changes.length > 0
+      ? `Updated in "${group.name}":\n• ${changes.join('\n• ')}`
+      : `Updated "${expense.title}" (₹${toMajorUnits(expense.totalAmountMinor)}) in ${group.name}`;
+
     void this.notificationsService.create(userId, {
-      title: 'Group Expense Updated',
-      message: `Updated "${expense.title}" (₹${toMajorUnits(expense.totalAmountMinor)}) in ${group.name}`,
+      title: `Group Expense Updated: "${expense.title}"`,
+      message: changeSummary,
       type: 'activity',
     }).catch(() => {});
 
@@ -308,11 +366,14 @@ export class GroupsService {
     }
 
     const title = expense.title;
+    const amount = toMajorUnits(expense.totalAmountMinor);
+    const paidBy = expense.paidBy;
+    const splitCount = expense.splits?.length || 0;
     await expense.deleteOne();
 
     void this.notificationsService.create(userId, {
-      title: 'Group Expense Deleted',
-      message: `Deleted "${title}" from ${group.name}`,
+      title: `Group Expense Deleted: "${title}"`,
+      message: `Deleted from "${group.name}":\n• Previous Amount: ₹${amount}\n• Paid by: ${paidBy}\n• Involved: ${splitCount} members (balances recalculated)`,
       type: 'activity',
     }).catch(() => {});
   }
