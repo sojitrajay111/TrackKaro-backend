@@ -10,9 +10,11 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
 import { toMajorUnits, toMinorUnits } from '@/common/money/money.util';
+import { NotificationsService } from '@/modules/notifications/notifications.service';
 import { AddGroupExpenseDto } from './dto/add-group-expense.dto';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
+import { UpdateGroupExpenseDto } from './dto/update-group-expense.dto';
 import { RecordSettlementDto } from './dto/record-settlement.dto';
 import { DebtSimplificationService, MemberBalance } from './services/debt-simplification.service';
 import { ExpenseGroup, ExpenseGroupDocument } from './schemas/expense-group.schema';
@@ -71,6 +73,7 @@ export class GroupsService {
     @InjectModel(ExpenseGroup.name) private readonly groupModel: Model<ExpenseGroupDocument>,
     @InjectModel(GroupExpense.name) private readonly expenseModel: Model<GroupExpenseDocument>,
     private readonly debtSimplificationService: DebtSimplificationService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async findAll(userId: string): Promise<PublicExpenseGroup[]> {
@@ -225,7 +228,93 @@ export class GroupsService {
       notes: dto.notes,
     });
 
+    void this.notificationsService.create(userId, {
+      title: 'Group Expense Added',
+      message: `${dto.paidBy} added "${dto.title}" (₹${dto.totalAmount}) in ${group.name}`,
+      type: 'activity',
+    }).catch(() => {});
+
     return this.toPublicExpense(expense);
+  }
+
+  async updateExpense(
+    userId: string,
+    groupId: string,
+    expenseId: string,
+    dto: UpdateGroupExpenseDto,
+  ): Promise<PublicGroupExpense> {
+    const group = await this.findOwnedGroup(userId, groupId);
+    const expense = await this.expenseModel.findOne({ _id: expenseId, groupId: group._id }).exec();
+    if (!expense) {
+      throw new NotFoundException('Expense not found');
+    }
+
+    const memberNames = new Set(group.members.map((m) => m.name));
+    if (dto.paidBy && !memberNames.has(dto.paidBy)) {
+      throw new BadRequestException(`"${dto.paidBy}" is not a member of this group.`);
+    }
+    if (dto.splits) {
+      for (const split of dto.splits) {
+        if (!memberNames.has(split.memberName)) {
+          throw new BadRequestException(`"${split.memberName}" is not a member of this group.`);
+        }
+      }
+    }
+
+    if (dto.title !== undefined) expense.title = dto.title;
+    if (dto.paidBy !== undefined) expense.paidBy = dto.paidBy;
+    if (dto.date !== undefined) expense.date = dto.date;
+    if (dto.splitType !== undefined) expense.splitType = dto.splitType;
+    if (dto.notes !== undefined) expense.notes = dto.notes;
+
+    if (dto.totalAmount !== undefined || dto.splits !== undefined) {
+      const totalAmountMinor = dto.totalAmount !== undefined ? toMinorUnits(dto.totalAmount) : expense.totalAmountMinor;
+      const splitsMinor = dto.splits !== undefined
+        ? dto.splits.map((s) => ({
+            memberName: s.memberName,
+            amountMinor: toMinorUnits(s.amount),
+          }))
+        : expense.splits;
+
+      const splitSum = splitsMinor.reduce((acc, s) => acc + s.amountMinor, 0);
+      if (Math.abs(splitSum - totalAmountMinor) > SPLIT_SUM_TOLERANCE_MINOR) {
+        throw new BadRequestException('Split amounts must add up to the total bill amount.');
+      }
+
+      expense.totalAmountMinor = totalAmountMinor;
+      expense.splits = splitsMinor as any;
+    }
+
+    await expense.save();
+
+    void this.notificationsService.create(userId, {
+      title: 'Group Expense Updated',
+      message: `Updated "${expense.title}" (₹${toMajorUnits(expense.totalAmountMinor)}) in ${group.name}`,
+      type: 'activity',
+    }).catch(() => {});
+
+    return this.toPublicExpense(expense);
+  }
+
+  async deleteExpense(
+    userId: string,
+    groupId: string,
+    expenseId: string,
+  ): Promise<void> {
+    const group = await this.findOwnedGroup(userId, groupId);
+    const expense = await this.expenseModel.findOne({ _id: expenseId, groupId: group._id }).exec();
+    if (!expense) {
+      throw new NotFoundException('Expense not found');
+    }
+
+    const title = expense.title;
+    await expense.deleteOne();
+
+    void this.notificationsService.create(userId, {
+      title: 'Group Expense Deleted',
+      message: `Deleted "${title}" from ${group.name}`,
+      type: 'activity',
+    }).catch(() => {});
   }
 
   async recordSettlement(
@@ -254,6 +343,12 @@ export class GroupsService {
       settlementTo: dto.toMember,
       notes: dto.notes ?? 'Settlement payment',
     });
+
+    void this.notificationsService.create(userId, {
+      title: 'Group Settlement Recorded',
+      message: `${dto.fromMember} paid ${dto.toMember} ₹${dto.amount} in ${group.name}`,
+      type: 'activity',
+    }).catch(() => {});
 
     return this.toPublicExpense(expense);
   }

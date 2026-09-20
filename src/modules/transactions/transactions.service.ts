@@ -4,6 +4,7 @@ import { FilterQuery, Model, Types } from 'mongoose';
 
 import { toMajorUnits, toMinorUnits } from '@/common/money/money.util';
 import { BudgetsService } from '@/modules/budgets/budgets.service';
+import { NotificationsService } from '@/modules/notifications/notifications.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { QueryTransactionsDto } from './dto/query-transactions.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
@@ -35,6 +36,7 @@ export class TransactionsService {
   constructor(
     @InjectModel(Transaction.name) private readonly transactionModel: Model<TransactionDocument>,
     private readonly budgetsService: BudgetsService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(userId: string, dto: CreateTransactionDto): Promise<PublicTransaction> {
@@ -65,6 +67,12 @@ export class TransactionsService {
       people: dto.people,
       notes: dto.notes,
     });
+
+    void this.notificationsService.create(userId, {
+      title: doc.type === 'income' ? 'Income Added' : 'Expense Added',
+      message: `${doc.type === 'income' ? 'Received' : 'Spent'} ₹${toMajorUnits(doc.amountMinor)} for "${doc.title}"`,
+      type: 'activity',
+    }).catch(() => {});
 
     return this.toPublic(doc);
   }
@@ -127,6 +135,13 @@ export class TransactionsService {
       )
       .exec();
     if (!doc) throw new NotFoundException('Transaction not found');
+
+    void this.notificationsService.create(userId, {
+      title: 'Expense Updated',
+      message: `Updated "${doc.title}" (₹${toMajorUnits(doc.amountMinor)})`,
+      type: 'activity',
+    }).catch(() => {});
+
     return this.toPublic(doc);
   }
 
@@ -134,10 +149,17 @@ export class TransactionsService {
     if (!userId) {
       throw new UnauthorizedException('User authentication required');
     }
-    const result = await this.transactionModel
-      .deleteOne({ _id: new Types.ObjectId(id), userId: new Types.ObjectId(userId) })
-      .exec();
-    if (result.deletedCount === 0) throw new NotFoundException('Transaction not found');
+    const doc = await this.transactionModel.findOne({ _id: new Types.ObjectId(id), userId: new Types.ObjectId(userId) }).exec();
+    if (!doc) throw new NotFoundException('Transaction not found');
+
+    const title = doc.title;
+    await doc.deleteOne();
+
+    void this.notificationsService.create(userId, {
+      title: 'Expense Deleted',
+      message: `Deleted "${title}"`,
+      type: 'activity',
+    }).catch(() => {});
   }
 
   async deleteAllForUser(userId: string): Promise<void> {

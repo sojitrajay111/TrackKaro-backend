@@ -3,7 +3,7 @@ import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
 
 export type NotificationDocument = HydratedDocument<Notification>;
 
-export const NOTIFICATION_TYPES = ['bill', 'deal', 'price_drop', 'insight'] as const;
+export const NOTIFICATION_TYPES = ['bill', 'deal', 'price_drop', 'insight', 'activity'] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
 @Schema({ timestamps: true })

@@ -3,6 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 
 import { ExpenseGroup, ExpenseGroupSchema } from './schemas/expense-group.schema';
 import { GroupExpense, GroupExpenseSchema } from './schemas/group-expense.schema';
+import { NotificationsModule } from '@/modules/notifications/notifications.module';
 import { GroupsController } from './groups.controller';
 import { GroupsService } from './groups.service';
 import { DebtSimplificationService } from './services/debt-simplification.service';
@@ -13,6 +14,7 @@ import { DebtSimplificationService } from './services/debt-simplification.servic
       { name: ExpenseGroup.name, schema: ExpenseGroupSchema },
       { name: GroupExpense.name, schema: GroupExpenseSchema },
     ]),
+    NotificationsModule,
   ],
   controllers: [GroupsController],
   providers: [GroupsService, DebtSimplificationService],

@@ -5,6 +5,7 @@ import { ParseObjectIdPipe } from '@/common/pipes/parse-object-id.pipe';
 import { AddGroupExpenseDto } from './dto/add-group-expense.dto';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
+import { UpdateGroupExpenseDto } from './dto/update-group-expense.dto';
 import { RecordSettlementDto } from './dto/record-settlement.dto';
 import { GroupsService } from './groups.service';
 
@@ -47,6 +48,26 @@ export class GroupsController {
     @Body() dto: AddGroupExpenseDto,
   ) {
     return this.groupsService.addExpense(user.userId, id, dto);
+  }
+
+  @Patch(':id/expenses/:expenseId')
+  updateExpense(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Param('expenseId', ParseObjectIdPipe) expenseId: string,
+    @Body() dto: UpdateGroupExpenseDto,
+  ) {
+    return this.groupsService.updateExpense(user.userId, id, expenseId, dto);
+  }
+
+  @Delete(':id/expenses/:expenseId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteExpense(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Param('expenseId', ParseObjectIdPipe) expenseId: string,
+  ) {
+    await this.groupsService.deleteExpense(user.userId, id, expenseId);
   }
 
   @Post(':id/settlements')
