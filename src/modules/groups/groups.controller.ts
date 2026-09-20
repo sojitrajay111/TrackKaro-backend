@@ -3,6 +3,7 @@ import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post
 import { CurrentUser, CurrentUserPayload } from '@/common/decorators/current-user.decorator';
 import { ParseObjectIdPipe } from '@/common/pipes/parse-object-id.pipe';
 import { AddGroupExpenseDto } from './dto/add-group-expense.dto';
+import { ConfirmGroupExpenseDto } from './dto/confirm-group-expense.dto';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { JoinGroupDto } from './dto/join-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
@@ -17,6 +18,11 @@ export class GroupsController {
   @Get()
   findAll(@CurrentUser() user: CurrentUserPayload) {
     return this.groupsService.findAll(user.userId);
+  }
+
+  @Get('pending-confirmations')
+  getPendingConfirmations(@CurrentUser() user: CurrentUserPayload) {
+    return this.groupsService.getPendingConfirmations(user.userId);
   }
 
   @Get('invite/:code')
@@ -93,5 +99,15 @@ export class GroupsController {
   @Get(':id/balances')
   getBalances(@CurrentUser() user: CurrentUserPayload, @Param('id', ParseObjectIdPipe) id: string) {
     return this.groupsService.getBalances(user.userId, id);
+  }
+
+  @Post(':id/expenses/:expenseId/confirm')
+  confirmExpenseSplit(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Param('expenseId', ParseObjectIdPipe) expenseId: string,
+    @Body() dto: ConfirmGroupExpenseDto,
+  ) {
+    return this.groupsService.confirmExpenseSplit(user.userId, id, expenseId, dto);
   }
 }

@@ -9,9 +9,12 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 
+import { CategoryName } from '@/common/constants/categories';
 import { toMajorUnits, toMinorUnits } from '@/common/money/money.util';
 import { NotificationsService } from '@/modules/notifications/notifications.service';
+import { PublicTransaction, TransactionsService } from '@/modules/transactions/transactions.service';
 import { AddGroupExpenseDto } from './dto/add-group-expense.dto';
+import { ConfirmGroupExpenseDto } from './dto/confirm-group-expense.dto';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { JoinGroupDto } from './dto/join-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
@@ -20,6 +23,16 @@ import { RecordSettlementDto } from './dto/record-settlement.dto';
 import { DebtSimplificationService, MemberBalance } from './services/debt-simplification.service';
 import { ExpenseGroup, ExpenseGroupDocument } from './schemas/expense-group.schema';
 import { GroupExpense, GroupExpenseDocument } from './schemas/group-expense.schema';
+
+/** Best-effort default so the confirm sheet doesn't start on "Other" — the user can still pick
+ * any category before confirming. */
+const GROUP_CATEGORY_SUGGESTION: Record<string, CategoryName> = {
+  Travel: 'Travel',
+  'Home & Utilities': 'Bills',
+  'Event & Party': 'Entertainment',
+  'Office & Work': 'Other',
+  Other: 'Other',
+};
 
 export interface PublicGroupMember {
   id: string;
@@ -33,6 +46,7 @@ export interface PublicGroupMember {
 export interface PublicGroupExpenseSplit {
   memberName: string;
   amount: number;
+  confirmedTransactionId?: string;
 }
 
 export interface PublicGroupExpense {
@@ -77,6 +91,18 @@ export interface GroupBalances {
   settlements: { from: string; to: string; amountMinor: number }[];
 }
 
+export interface PendingGroupConfirmation {
+  groupId: string;
+  groupName: string;
+  expenseId: string;
+  title: string;
+  date: string;
+  amount: number;
+  paidBy: string;
+  isPayer: boolean;
+  suggestedCategory: CategoryName;
+}
+
 const SPLIT_SUM_TOLERANCE_MINOR = 100; // ₹1
 
 @Injectable()
@@ -86,6 +112,7 @@ export class GroupsService {
     @InjectModel(GroupExpense.name) private readonly expenseModel: Model<GroupExpenseDocument>,
     private readonly debtSimplificationService: DebtSimplificationService,
     private readonly notificationsService: NotificationsService,
+    private readonly transactionsService: TransactionsService,
   ) {}
 
   private generateInviteCode(): string {
@@ -604,6 +631,98 @@ export class GroupsService {
     return { groupId, totalGroupSpendMinor, members: memberBalances, settlements };
   }
 
+  /** Every one of the current user's own split lines, across every group they can access
+   * (owned or joined), that hasn't yet been turned into a personal transaction. Settlements
+   * are excluded — they're debt repayments, not new spend. */
+  async getPendingConfirmations(userId: string): Promise<PendingGroupConfirmation[]> {
+    const userObjId = new Types.ObjectId(userId);
+    const groups = await this.groupModel
+      .find({ $or: [{ userId: userObjId }, { 'members.linkedUserId': userObjId }] })
+      .exec();
+    if (groups.length === 0) return [];
+
+    const groupIds = groups.map((g) => g._id);
+    const expenses = await this.expenseModel
+      .find({ groupId: { $in: groupIds }, isSettlement: { $ne: true } })
+      .sort({ date: -1, createdAt: -1 })
+      .exec();
+
+    const groupById = new Map(groups.map((g) => [g._id.toString(), g]));
+    const pending: PendingGroupConfirmation[] = [];
+
+    for (const expense of expenses) {
+      const group = groupById.get(expense.groupId.toString());
+      if (!group) continue;
+
+      const myNames = new Set(
+        group.members.filter((m) => m.linkedUserId?.equals(userObjId)).map((m) => m.name),
+      );
+      if (myNames.size === 0) continue;
+
+      for (const split of expense.splits) {
+        if (!myNames.has(split.memberName) || split.confirmedTransactionId) continue;
+        pending.push({
+          groupId: group._id.toString(),
+          groupName: group.name,
+          expenseId: expense._id.toString(),
+          title: expense.title,
+          date: expense.date,
+          amount: toMajorUnits(split.amountMinor),
+          paidBy: expense.paidBy,
+          isPayer: expense.paidBy === split.memberName,
+          suggestedCategory: GROUP_CATEGORY_SUGGESTION[group.category] ?? 'Other',
+        });
+      }
+    }
+
+    return pending;
+  }
+
+  /** Logs the current user's own share of a group expense as a personal transaction, then
+   * marks that split confirmed so it's never double-counted. */
+  async confirmExpenseSplit(
+    userId: string,
+    groupId: string,
+    expenseId: string,
+    dto: ConfirmGroupExpenseDto,
+  ): Promise<PublicTransaction> {
+    const group = await this.findGroupForUser(userId, groupId);
+    const expense = await this.expenseModel.findOne({ _id: expenseId, groupId: group._id }).exec();
+    if (!expense) throw new NotFoundException('Expense not found');
+
+    const userObjId = new Types.ObjectId(userId);
+    const myNames = new Set(
+      group.members.filter((m) => m.linkedUserId?.equals(userObjId)).map((m) => m.name),
+    );
+
+    const splitIndex = expense.splits.findIndex((s) => myNames.has(s.memberName) && !s.confirmedTransactionId);
+    if (splitIndex === -1) {
+      throw new NotFoundException('No unconfirmed share of this expense belongs to you.');
+    }
+
+    const transaction = await this.transactionsService.create(userId, {
+      title: expense.title,
+      merchant: group.name,
+      amount: toMajorUnits(expense.splits[splitIndex].amountMinor),
+      type: 'expense',
+      category: dto.category,
+      date: expense.date,
+      paymentMethod: 'Cash',
+      notes: `Confirmed from group "${group.name}"${expense.notes ? ` — ${expense.notes}` : ''}`,
+    });
+
+    // Reassign the whole array (rather than mutating the subdocument in place) to match this
+    // service's established persistence pattern for `splits` elsewhere (see updateExpense).
+    expense.splits = expense.splits.map((s, i) =>
+      i === splitIndex
+        ? { memberName: s.memberName, amountMinor: s.amountMinor, confirmedTransactionId: transaction.id }
+        : s,
+    );
+    await expense.save();
+
+    return transaction;
+  }
+
   private async findOwnedGroup(userId: string, groupId: string): Promise<ExpenseGroupDocument> {
     const group = await this.groupModel.findById(groupId).exec();
     if (!group) throw new NotFoundException('Group not found');
@@ -672,6 +791,7 @@ export class GroupsService {
       splits: doc.splits.map((s) => ({
         memberName: s.memberName,
         amount: toMajorUnits(s.amountMinor),
+        confirmedTransactionId: s.confirmedTransactionId,
       })),
       splitType: doc.splitType,
       notes: doc.notes,

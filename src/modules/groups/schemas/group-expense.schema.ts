@@ -11,6 +11,11 @@ export class GroupExpenseSplit {
 
   @Prop({ required: true })
   amountMinor!: number;
+
+  /** Set once this member has confirmed their share and it's been logged as a personal
+   * transaction — points at that Transaction's id so it's never double-confirmed. */
+  @Prop()
+  confirmedTransactionId?: string;
 }
 
 export const GroupExpenseSplitSchema = SchemaFactory.createForClass(GroupExpenseSplit);
