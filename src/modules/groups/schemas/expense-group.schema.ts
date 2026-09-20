@@ -52,6 +52,9 @@ export class ExpenseGroup {
   @Prop({ required: true, enum: GROUP_CATEGORIES })
   category!: GroupCategory;
 
+  @Prop({ type: String, unique: true, sparse: true, index: true, uppercase: true, trim: true })
+  inviteCode?: string;
+
   @Prop({ type: [GroupMemberSchema], required: true })
   members!: GroupMember[];
 

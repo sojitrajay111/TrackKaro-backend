@@ -4,6 +4,7 @@ import { CurrentUser, CurrentUserPayload } from '@/common/decorators/current-use
 import { ParseObjectIdPipe } from '@/common/pipes/parse-object-id.pipe';
 import { AddGroupExpenseDto } from './dto/add-group-expense.dto';
 import { CreateGroupDto } from './dto/create-group.dto';
+import { JoinGroupDto } from './dto/join-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
 import { UpdateGroupExpenseDto } from './dto/update-group-expense.dto';
 import { RecordSettlementDto } from './dto/record-settlement.dto';
@@ -16,6 +17,16 @@ export class GroupsController {
   @Get()
   findAll(@CurrentUser() user: CurrentUserPayload) {
     return this.groupsService.findAll(user.userId);
+  }
+
+  @Get('invite/:code')
+  previewInvite(@Param('code') code: string) {
+    return this.groupsService.previewInvite(code);
+  }
+
+  @Post('join')
+  join(@CurrentUser() user: CurrentUserPayload, @Body() dto: JoinGroupDto) {
+    return this.groupsService.joinGroup(user.userId, dto);
   }
 
   @Post()

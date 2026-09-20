@@ -7,12 +7,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 
 import { toMajorUnits, toMinorUnits } from '@/common/money/money.util';
 import { NotificationsService } from '@/modules/notifications/notifications.service';
 import { AddGroupExpenseDto } from './dto/add-group-expense.dto';
 import { CreateGroupDto } from './dto/create-group.dto';
+import { JoinGroupDto } from './dto/join-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
 import { UpdateGroupExpenseDto } from './dto/update-group-expense.dto';
 import { RecordSettlementDto } from './dto/record-settlement.dto';
@@ -24,6 +25,9 @@ export interface PublicGroupMember {
   id: string;
   name: string;
   phone?: string;
+  linkedUserId?: string | null;
+  status?: 'ghost' | 'registered';
+  isCurrentUser?: boolean;
 }
 
 export interface PublicGroupExpenseSplit {
@@ -50,9 +54,20 @@ export interface PublicExpenseGroup {
   id: string;
   name: string;
   category: string;
+  inviteCode: string;
+  isOwner: boolean;
+  currentMemberName: string;
   members: PublicGroupMember[];
   expenses: PublicGroupExpense[];
   createdAt: string;
+}
+
+export interface GroupInvitePreview {
+  id: string;
+  name: string;
+  category: string;
+  inviteCode: string;
+  members: { id: string; name: string; isClaimed: boolean }[];
 }
 
 export interface GroupBalances {
@@ -62,9 +77,6 @@ export interface GroupBalances {
   settlements: { from: string; to: string; amountMinor: number }[];
 }
 
-// Splits are pre-rounded per-member on the client; allow a small tolerance for the sum to
-// deviate from the total (e.g. ₹100 / 3 leaves a paisa or two of rounding slack) rather than
-// rejecting legitimate client-computed splits.
 const SPLIT_SUM_TOLERANCE_MINOR = 100; // ₹1
 
 @Injectable()
@@ -76,9 +88,61 @@ export class GroupsService {
     private readonly notificationsService: NotificationsService,
   ) {}
 
+  private generateInviteCode(): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = 'TK';
+    for (let i = 0; i < 4; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+  }
+
+  private async broadcastGroupActivity(
+    group: ExpenseGroupDocument,
+    actorUserId: string,
+    title: string,
+    message: string,
+  ) {
+    const recipientUserIds = new Set<string>();
+    if (group.userId.toString() !== actorUserId) {
+      recipientUserIds.add(group.userId.toString());
+    }
+    for (const m of group.members) {
+      if (m.linkedUserId && m.linkedUserId.toString() !== actorUserId) {
+        recipientUserIds.add(m.linkedUserId.toString());
+      }
+    }
+
+    for (const targetUserId of recipientUserIds) {
+      void this.notificationsService.create(targetUserId, {
+        title,
+        message,
+        type: 'activity',
+      }).catch(() => {});
+    }
+  }
+
   async findAll(userId: string): Promise<PublicExpenseGroup[]> {
-    const groups = await this.groupModel.find({ userId }).sort({ createdAt: -1 }).exec();
+    const userObjId = new Types.ObjectId(userId);
+    const groups = await this.groupModel
+      .find({
+        $or: [
+          { userId: userObjId },
+          { 'members.linkedUserId': userObjId },
+        ],
+      })
+      .sort({ createdAt: -1 })
+      .exec();
+
     if (groups.length === 0) return [];
+
+    // Ensure all groups have an invite code
+    for (const group of groups) {
+      if (!group.inviteCode) {
+        group.inviteCode = this.generateInviteCode();
+        await group.save();
+      }
+    }
 
     const groupIds = groups.map((g) => g._id);
     const expenses = await this.expenseModel
@@ -90,25 +154,119 @@ export class GroupsService {
       this.assemble(
         group,
         expenses.filter((e) => e.groupId.equals(group._id)),
+        userId,
       ),
     );
   }
 
   async create(userId: string, dto: CreateGroupDto): Promise<PublicExpenseGroup> {
-    const members = dto.members.map((m) => ({
-      id: randomUUID(),
-      name: m.name,
-      phone: m.phone,
-      status: 'ghost' as const,
-    }));
+    const userObjId = new Types.ObjectId(userId);
+    let inviteCode = this.generateInviteCode();
+    while (await this.groupModel.findOne({ inviteCode }).exec()) {
+      inviteCode = this.generateInviteCode();
+    }
+
+    const members = dto.members.map((m) => {
+      const isOwnerMember = m.name.trim().toLowerCase() === 'you';
+      return {
+        id: randomUUID(),
+        name: m.name.trim(),
+        phone: m.phone?.trim() || undefined,
+        linkedUserId: isOwnerMember ? userObjId : null,
+        status: isOwnerMember ? ('registered' as const) : ('ghost' as const),
+      };
+    });
+
+    if (!members.some((m) => m.linkedUserId && m.linkedUserId.equals(userObjId))) {
+      members.unshift({
+        id: randomUUID(),
+        name: 'You',
+        phone: undefined,
+        linkedUserId: userObjId,
+        status: 'registered' as const,
+      });
+    }
 
     const group = await this.groupModel.create({
-      userId,
-      name: dto.name,
+      userId: userObjId,
+      name: dto.name.trim(),
       category: dto.category,
+      inviteCode,
       members,
     });
-    return this.assemble(group, []);
+
+    return this.assemble(group, [], userId);
+  }
+
+  async previewInvite(inviteCode: string): Promise<GroupInvitePreview> {
+    const cleanCode = inviteCode.trim().toUpperCase();
+    const group = await this.groupModel.findOne({ inviteCode: cleanCode }).exec();
+    if (!group) throw new NotFoundException('Invalid or expired invite code');
+
+    return {
+      id: group._id.toString(),
+      name: group.name,
+      category: group.category,
+      inviteCode: group.inviteCode || cleanCode,
+      members: group.members.map((m) => ({
+        id: m.id,
+        name: m.name,
+        isClaimed: Boolean(m.linkedUserId),
+      })),
+    };
+  }
+
+  async joinGroup(userId: string, dto: JoinGroupDto): Promise<PublicExpenseGroup> {
+    const cleanCode = dto.inviteCode.trim().toUpperCase();
+    const group = await this.groupModel.findOne({ inviteCode: cleanCode }).exec();
+    if (!group) throw new NotFoundException('Invalid or expired invite code');
+
+    const userObjId = new Types.ObjectId(userId);
+    const alreadyLinked =
+      group.userId.equals(userObjId) ||
+      group.members.some((m) => m.linkedUserId && m.linkedUserId.equals(userObjId));
+
+    if (alreadyLinked) {
+      const expenses = await this.expenseModel.find({ groupId: group._id }).sort({ date: -1, createdAt: -1 }).exec();
+      return this.assemble(group, expenses, userId);
+    }
+
+    let joinedMemberName = '';
+    if (dto.memberId) {
+      const member = group.members.find((m) => m.id === dto.memberId);
+      if (!member) throw new BadRequestException('Selected member does not exist in this group');
+      if (member.linkedUserId && !member.linkedUserId.equals(userObjId)) {
+        throw new BadRequestException(`Member "${member.name}" is already linked to another account.`);
+      }
+      member.linkedUserId = userObjId;
+      member.status = 'registered';
+      joinedMemberName = member.name;
+    } else if (dto.memberName) {
+      const name = dto.memberName.trim();
+      const newMember = {
+        id: randomUUID(),
+        name,
+        phone: undefined,
+        linkedUserId: userObjId,
+        status: 'registered' as const,
+      };
+      group.members.push(newMember as any);
+      joinedMemberName = name;
+    } else {
+      throw new BadRequestException('Please specify which member you are, or provide a member name.');
+    }
+
+    await group.save();
+
+    void this.broadcastGroupActivity(
+      group,
+      userId,
+      'Member Joined Group',
+      `"${joinedMemberName}" joined ${group.name} using the invite code!`,
+    );
+
+    const expenses = await this.expenseModel.find({ groupId: group._id }).sort({ date: -1, createdAt: -1 }).exec();
+    return this.assemble(group, expenses, userId);
   }
 
   async update(
@@ -132,17 +290,19 @@ export class GroupsService {
           id: existing ? existing.id : randomUUID(),
           name: m.name.trim(),
           phone: m.phone?.trim() || existing?.phone,
+          linkedUserId: existing ? existing.linkedUserId : null,
           status: existing ? existing.status : ('ghost' as const),
         };
       });
 
-      // Ensure "You" is always present in members
+      // Ensure "You" or owner is present in members
       if (!newMembers.some((m) => m.name.toLowerCase() === 'you')) {
         newMembers.unshift({
           id: randomUUID(),
           name: 'You',
           phone: undefined,
-          status: 'ghost' as const,
+          linkedUserId: new Types.ObjectId(userId),
+          status: 'registered' as const,
         });
       }
 
@@ -167,6 +327,10 @@ export class GroupsService {
       group.members = newMembers as any;
     }
 
+    if (!group.inviteCode) {
+      group.inviteCode = this.generateInviteCode();
+    }
+
     await group.save();
 
     const expenses = await this.expenseModel
@@ -174,7 +338,7 @@ export class GroupsService {
       .sort({ date: -1, createdAt: -1 })
       .exec();
 
-    return this.assemble(group, expenses);
+    return this.assemble(group, expenses, userId);
   }
 
   async remove(userId: string, groupId: string): Promise<void> {
@@ -184,8 +348,11 @@ export class GroupsService {
   }
 
   async deleteAllForUser(userId: string): Promise<void> {
-    await this.expenseModel.deleteMany({ userId }).exec();
-    await this.groupModel.deleteMany({ userId }).exec();
+    const userObjId = new Types.ObjectId(userId);
+    const groups = await this.groupModel.find({ userId: userObjId }).exec();
+    const groupIds = groups.map((g) => g._id);
+    await this.expenseModel.deleteMany({ groupId: { $in: groupIds } }).exec();
+    await this.groupModel.deleteMany({ userId: userObjId }).exec();
   }
 
   async addExpense(
@@ -193,9 +360,9 @@ export class GroupsService {
     groupId: string,
     dto: AddGroupExpenseDto,
   ): Promise<PublicGroupExpense> {
-    const group = await this.findOwnedGroup(userId, groupId);
-    const memberNames = new Set(group.members.map((m) => m.name));
+    const group = await this.findGroupForUser(userId, groupId);
 
+    const memberNames = new Set(group.members.map((m) => m.name));
     if (!memberNames.has(dto.paidBy)) {
       throw new BadRequestException(`"${dto.paidBy}" is not a member of this group.`);
     }
@@ -228,11 +395,12 @@ export class GroupsService {
       notes: dto.notes,
     });
 
-    void this.notificationsService.create(userId, {
-      title: 'Group Expense Added',
-      message: `${dto.paidBy} added "${dto.title}" (₹${dto.totalAmount}) in ${group.name}`,
-      type: 'activity',
-    }).catch(() => {});
+    void this.broadcastGroupActivity(
+      group,
+      userId,
+      'Group Expense Added',
+      `${dto.paidBy} added "${dto.title}" (₹${dto.totalAmount}) in ${group.name}`,
+    );
 
     return this.toPublicExpense(expense);
   }
@@ -243,7 +411,7 @@ export class GroupsService {
     expenseId: string,
     dto: UpdateGroupExpenseDto,
   ): Promise<PublicGroupExpense> {
-    const group = await this.findOwnedGroup(userId, groupId);
+    const group = await this.findGroupForUser(userId, groupId);
     const expense = await this.expenseModel.findOne({ _id: expenseId, groupId: group._id }).exec();
     if (!expense) {
       throw new NotFoundException('Expense not found');
@@ -311,7 +479,6 @@ export class GroupsService {
         throw new BadRequestException('Split amounts must add up to the total bill amount.');
       }
 
-      // Compute split diffs
       if (dto.splits !== undefined) {
         const oldMap = new Map(oldSplits.map((s) => [s.memberName, s.amount]));
         const newMap = new Map(dto.splits.map((s) => [s.memberName, s.amount]));
@@ -345,21 +512,18 @@ export class GroupsService {
       ? `Updated in "${group.name}":\n• ${changes.join('\n• ')}`
       : `Updated "${expense.title}" (₹${toMajorUnits(expense.totalAmountMinor)}) in ${group.name}`;
 
-    void this.notificationsService.create(userId, {
-      title: `Group Expense Updated: "${expense.title}"`,
-      message: changeSummary,
-      type: 'activity',
-    }).catch(() => {});
+    void this.broadcastGroupActivity(
+      group,
+      userId,
+      `Group Expense Updated: "${expense.title}"`,
+      changeSummary,
+    );
 
     return this.toPublicExpense(expense);
   }
 
-  async deleteExpense(
-    userId: string,
-    groupId: string,
-    expenseId: string,
-  ): Promise<void> {
-    const group = await this.findOwnedGroup(userId, groupId);
+  async deleteExpense(userId: string, groupId: string, expenseId: string): Promise<void> {
+    const group = await this.findGroupForUser(userId, groupId);
     const expense = await this.expenseModel.findOne({ _id: expenseId, groupId: group._id }).exec();
     if (!expense) {
       throw new NotFoundException('Expense not found');
@@ -371,11 +535,12 @@ export class GroupsService {
     const splitCount = expense.splits?.length || 0;
     await expense.deleteOne();
 
-    void this.notificationsService.create(userId, {
-      title: `Group Expense Deleted: "${title}"`,
-      message: `Deleted from "${group.name}":\n• Previous Amount: ₹${amount}\n• Paid by: ${paidBy}\n• Involved: ${splitCount} members (balances recalculated)`,
-      type: 'activity',
-    }).catch(() => {});
+    void this.broadcastGroupActivity(
+      group,
+      userId,
+      `Group Expense Deleted: "${title}"`,
+      `Deleted from "${group.name}":\n• Previous Amount: ₹${amount}\n• Paid by: ${paidBy}\n• Involved: ${splitCount} members (balances recalculated)`,
+    );
   }
 
   async recordSettlement(
@@ -383,7 +548,7 @@ export class GroupsService {
     groupId: string,
     dto: RecordSettlementDto,
   ): Promise<PublicGroupExpense> {
-    const group = await this.findOwnedGroup(userId, groupId);
+    const group = await this.findGroupForUser(userId, groupId);
     const memberNames = new Set(group.members.map((m) => m.name));
 
     if (!memberNames.has(dto.fromMember) || !memberNames.has(dto.toMember)) {
@@ -405,17 +570,18 @@ export class GroupsService {
       notes: dto.notes ?? 'Settlement payment',
     });
 
-    void this.notificationsService.create(userId, {
-      title: 'Group Settlement Recorded',
-      message: `${dto.fromMember} paid ${dto.toMember} ₹${dto.amount} in ${group.name}`,
-      type: 'activity',
-    }).catch(() => {});
+    void this.broadcastGroupActivity(
+      group,
+      userId,
+      'Group Settlement Recorded',
+      `${dto.fromMember} paid ${dto.toMember} ₹${dto.amount} in ${group.name}`,
+    );
 
     return this.toPublicExpense(expense);
   }
 
   async getBalances(userId: string, groupId: string): Promise<GroupBalances> {
-    const group = await this.findOwnedGroup(userId, groupId);
+    const group = await this.findGroupForUser(userId, groupId);
     const expenses = await this.expenseModel.find({ groupId: group._id }).exec();
 
     const balances = new Map<string, number>();
@@ -446,15 +612,50 @@ export class GroupsService {
     return group;
   }
 
+  private async findGroupForUser(userId: string, groupId: string): Promise<ExpenseGroupDocument> {
+    const group = await this.groupModel.findById(groupId).exec();
+    if (!group) throw new NotFoundException('Group not found');
+    const userObjId = new Types.ObjectId(userId);
+    const isOwner = group.userId.equals(userObjId);
+    const isLinked = group.members.some((m) => m.linkedUserId && m.linkedUserId.equals(userObjId));
+    if (!isOwner && !isLinked) {
+      throw new ForbiddenException('You do not have access to this group');
+    }
+    return group;
+  }
+
   private assemble(
     group: ExpenseGroupDocument,
     expenses: GroupExpenseDocument[],
+    currentUserId?: string,
   ): PublicExpenseGroup {
+    const userObjId = currentUserId ? new Types.ObjectId(currentUserId) : null;
+    const isOwner = userObjId ? group.userId.equals(userObjId) : false;
+
+    let currentMember = group.members.find((m) => userObjId && m.linkedUserId && m.linkedUserId.equals(userObjId));
+    if (!currentMember && isOwner) {
+      currentMember = group.members.find((m) => m.name.toLowerCase() === 'you');
+    }
+    const currentMemberName = currentMember ? currentMember.name : (isOwner ? 'You' : '');
+
     return {
       id: group._id.toString(),
       name: group.name,
       category: group.category,
-      members: group.members.map((m) => ({ id: m.id, name: m.name, phone: m.phone })),
+      inviteCode: group.inviteCode || '',
+      isOwner,
+      currentMemberName,
+      members: group.members.map((m) => ({
+        id: m.id,
+        name: m.name,
+        phone: m.phone,
+        linkedUserId: m.linkedUserId ? m.linkedUserId.toString() : null,
+        status: m.status,
+        isCurrentUser: Boolean(
+          (userObjId && m.linkedUserId && m.linkedUserId.equals(userObjId)) ||
+          (isOwner && m.name.toLowerCase() === 'you')
+        ),
+      })),
       expenses: expenses.map((e) => this.toPublicExpense(e)),
       createdAt: group.createdAt.toISOString().split('T')[0],
     };
