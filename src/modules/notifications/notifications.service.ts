@@ -43,6 +43,10 @@ export class NotificationsService {
     return this.toPublic(doc);
   }
 
+  async markAllRead(userId: string): Promise<void> {
+    await this.notificationModel.updateMany({ userId, read: false }, { read: true }).exec();
+  }
+
   async clearAll(userId: string): Promise<void> {
     await this.notificationModel.deleteMany({ userId }).exec();
   }

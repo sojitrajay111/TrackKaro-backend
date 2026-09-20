@@ -13,6 +13,11 @@ export class NotificationsController {
     return this.notificationsService.findAll(user.userId);
   }
 
+  @Patch('read-all')
+  markAllRead(@CurrentUser() user: CurrentUserPayload) {
+    return this.notificationsService.markAllRead(user.userId);
+  }
+
   @Patch(':id/read')
   markRead(@CurrentUser() user: CurrentUserPayload, @Param('id', ParseObjectIdPipe) id: string) {
     return this.notificationsService.markRead(user.userId, id);
