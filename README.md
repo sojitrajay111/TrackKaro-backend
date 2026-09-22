@@ -11,6 +11,7 @@ The official backend API service for **TrackKaro**, a personal finance, digital 
 - **📊 Real-Time Financial Transactions:** Complete CRUD for income and expenses with category aggregation, Indian Rupee (`₹`) minor-unit integer precision, and monthly filtering.
 - **📖 Digital Bahi Khata Ledger:** Customer-centric debt and credit ledgers with settlement tracking and transaction history.
 - **👥 Expense Groups & Debt Simplification:** Multi-member expense groups with equal, exact, and percentage splitting, plus a built-in greedy pairwise debt simplification engine to minimize inter-member transactions.
+- **✅ Group Expense Confirmations:** `GET /groups/pending-confirmations` aggregates every unconfirmed split across all of a user's groups (owned or joined); `POST /groups/:id/expenses/:expenseId/confirm` turns a confirmed split into a real personal transaction, with a category suggested from the group's category. A self-healing lookup links a group's placeholder "you" member to the real account the first time it's queried, so older groups created before an invite flow existed still resolve correctly.
 - **🎯 Category Spending Budgets:** Monthly budget limits per category with automatic 80% and 100% threshold alerting.
 - **⏰ Smart Bill & EMI Reminders:** Scheduled reminder tracking with due dates and payment status.
 - **📱 Recurring Subscriptions & Redundancy Audit:** Tracks recurring annual and monthly commitments, calculates amortized monthly costs, and flags duplicate services.
@@ -150,7 +151,9 @@ npm run test:e2e
 | `GET` | `/khata` | Fetch customer ledgers and balances |
 | `POST` | `/khata` | Record a debit or credit khata entry |
 | `GET` | `/groups` | List user's shared expense groups |
+| `GET` | `/groups/pending-confirmations` | List every unconfirmed group-expense split across all of the user's groups |
 | `POST` | `/groups/:id/expenses` | Add group expense and recalculate debt simplification |
+| `POST` | `/groups/:id/expenses/:expenseId/confirm` | Confirm a pending split, creating a personal transaction in the chosen category |
 | `GET` | `/budgets` | Get monthly category budgets and progress |
 | `PUT` | `/budgets/:category` | Upsert monthly budget limit for a category |
 | `GET` | `/reminders` | Fetch pending and paid bill reminders |
