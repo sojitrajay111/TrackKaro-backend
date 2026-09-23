@@ -14,6 +14,16 @@ export interface AppConfig {
     user: string;
     passcode: string;
   };
+  deals: {
+    /** 'provider' (default, production target) tries real marketplace providers only, e.g.
+     * Flipkart. 'legacy' uses the old Gemini-generated deal finder, kept for comparison during
+     * the Flipkart rollout. See deals.service.ts#discoverDeals. */
+    engineMode: 'provider' | 'legacy';
+  };
+  flipkart: {
+    affiliateId: string;
+    affiliateToken: string;
+  };
 }
 
 export default (): AppConfig => ({
@@ -34,5 +44,12 @@ export default (): AppConfig => ({
   email: {
     user: process.env.EMAIL_USER ?? '',
     passcode: process.env.EMAIL_PASSCODE ?? '',
+  },
+  deals: {
+    engineMode: process.env.DEALS_ENGINE_MODE === 'legacy' ? 'legacy' : 'provider',
+  },
+  flipkart: {
+    affiliateId: process.env.FLIPKART_AFFILIATE_ID ?? '',
+    affiliateToken: process.env.FLIPKART_AFFILIATE_TOKEN ?? '',
   },
 });

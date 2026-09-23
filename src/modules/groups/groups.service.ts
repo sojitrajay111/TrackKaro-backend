@@ -12,7 +12,10 @@ import { Model, Types } from 'mongoose';
 import { CategoryName } from '@/common/constants/categories';
 import { toMajorUnits, toMinorUnits } from '@/common/money/money.util';
 import { NotificationsService } from '@/modules/notifications/notifications.service';
-import { PublicTransaction, TransactionsService } from '@/modules/transactions/transactions.service';
+import {
+  PublicTransaction,
+  TransactionsService,
+} from '@/modules/transactions/transactions.service';
 import { AddGroupExpenseDto } from './dto/add-group-expense.dto';
 import { ConfirmGroupExpenseDto } from './dto/confirm-group-expense.dto';
 import { CreateGroupDto } from './dto/create-group.dto';
@@ -141,11 +144,13 @@ export class GroupsService {
     }
 
     for (const targetUserId of recipientUserIds) {
-      void this.notificationsService.create(targetUserId, {
-        title,
-        message,
-        type: 'activity',
-      }).catch(() => {});
+      void this.notificationsService
+        .create(targetUserId, {
+          title,
+          message,
+          type: 'activity',
+        })
+        .catch(() => {});
     }
   }
 
@@ -153,10 +158,7 @@ export class GroupsService {
     const userObjId = new Types.ObjectId(userId);
     const groups = await this.groupModel
       .find({
-        $or: [
-          { userId: userObjId },
-          { 'members.linkedUserId': userObjId },
-        ],
+        $or: [{ userId: userObjId }, { 'members.linkedUserId': userObjId }],
       })
       .sort({ createdAt: -1 })
       .exec();
@@ -254,7 +256,10 @@ export class GroupsService {
       group.members.some((m) => m.linkedUserId && m.linkedUserId.equals(userObjId));
 
     if (alreadyLinked) {
-      const expenses = await this.expenseModel.find({ groupId: group._id }).sort({ date: -1, createdAt: -1 }).exec();
+      const expenses = await this.expenseModel
+        .find({ groupId: group._id })
+        .sort({ date: -1, createdAt: -1 })
+        .exec();
       return this.assemble(group, expenses, userId);
     }
 
@@ -263,7 +268,9 @@ export class GroupsService {
       const member = group.members.find((m) => m.id === dto.memberId);
       if (!member) throw new BadRequestException('Selected member does not exist in this group');
       if (member.linkedUserId && !member.linkedUserId.equals(userObjId)) {
-        throw new BadRequestException(`Member "${member.name}" is already linked to another account.`);
+        throw new BadRequestException(
+          `Member "${member.name}" is already linked to another account.`,
+        );
       }
       member.linkedUserId = userObjId;
       member.status = 'registered';
@@ -280,7 +287,9 @@ export class GroupsService {
       group.members.push(newMember as any);
       joinedMemberName = name;
     } else {
-      throw new BadRequestException('Please specify which member you are, or provide a member name.');
+      throw new BadRequestException(
+        'Please specify which member you are, or provide a member name.',
+      );
     }
 
     await group.save();
@@ -292,15 +301,14 @@ export class GroupsService {
       `"${joinedMemberName}" joined ${group.name} using the invite code!`,
     );
 
-    const expenses = await this.expenseModel.find({ groupId: group._id }).sort({ date: -1, createdAt: -1 }).exec();
+    const expenses = await this.expenseModel
+      .find({ groupId: group._id })
+      .sort({ date: -1, createdAt: -1 })
+      .exec();
     return this.assemble(group, expenses, userId);
   }
 
-  async update(
-    userId: string,
-    groupId: string,
-    dto: UpdateGroupDto,
-  ): Promise<PublicExpenseGroup> {
+  async update(userId: string, groupId: string, dto: UpdateGroupDto): Promise<PublicExpenseGroup> {
     const group = await this.findOwnedGroup(userId, groupId);
 
     if (dto.name !== undefined) {
@@ -493,13 +501,15 @@ export class GroupsService {
     }
 
     if (dto.totalAmount !== undefined || dto.splits !== undefined) {
-      const totalAmountMinor = dto.totalAmount !== undefined ? toMinorUnits(dto.totalAmount) : expense.totalAmountMinor;
-      const splitsMinor = dto.splits !== undefined
-        ? dto.splits.map((s) => ({
-            memberName: s.memberName,
-            amountMinor: toMinorUnits(s.amount),
-          }))
-        : expense.splits;
+      const totalAmountMinor =
+        dto.totalAmount !== undefined ? toMinorUnits(dto.totalAmount) : expense.totalAmountMinor;
+      const splitsMinor =
+        dto.splits !== undefined
+          ? dto.splits.map((s) => ({
+              memberName: s.memberName,
+              amountMinor: toMinorUnits(s.amount),
+            }))
+          : expense.splits;
 
       const splitSum = splitsMinor.reduce((acc, s) => acc + s.amountMinor, 0);
       if (Math.abs(splitSum - totalAmountMinor) > SPLIT_SUM_TOLERANCE_MINOR) {
@@ -535,9 +545,10 @@ export class GroupsService {
 
     await expense.save();
 
-    const changeSummary = changes.length > 0
-      ? `Updated in "${group.name}":\n• ${changes.join('\n• ')}`
-      : `Updated "${expense.title}" (₹${toMajorUnits(expense.totalAmountMinor)}) in ${group.name}`;
+    const changeSummary =
+      changes.length > 0
+        ? `Updated in "${group.name}":\n• ${changes.join('\n• ')}`
+        : `Updated "${expense.title}" (₹${toMajorUnits(expense.totalAmountMinor)}) in ${group.name}`;
 
     void this.broadcastGroupActivity(
       group,
@@ -690,7 +701,9 @@ export class GroupsService {
 
     const myNames = await this.getMyMemberNames(group, userId);
 
-    const splitIndex = expense.splits.findIndex((s) => myNames.has(s.memberName) && !s.confirmedTransactionId);
+    const splitIndex = expense.splits.findIndex(
+      (s) => myNames.has(s.memberName) && !s.confirmedTransactionId,
+    );
     if (splitIndex === -1) {
       throw new NotFoundException('No unconfirmed share of this expense belongs to you.');
     }
@@ -710,7 +723,11 @@ export class GroupsService {
     // service's established persistence pattern for `splits` elsewhere (see updateExpense).
     expense.splits = expense.splits.map((s, i) =>
       i === splitIndex
-        ? { memberName: s.memberName, amountMinor: s.amountMinor, confirmedTransactionId: transaction.id }
+        ? {
+            memberName: s.memberName,
+            amountMinor: s.amountMinor,
+            confirmedTransactionId: transaction.id,
+          }
         : s,
     );
     await expense.save();
@@ -723,13 +740,18 @@ export class GroupsService {
    * creation time, so as a fallback: if this user owns the group and no member is linked to
    * them at all, treat a member literally named "You" as themselves (and heal the record so
    * this fallback isn't needed next time). */
-  private async getMyMemberNames(group: ExpenseGroupDocument, userId: string): Promise<Set<string>> {
+  private async getMyMemberNames(
+    group: ExpenseGroupDocument,
+    userId: string,
+  ): Promise<Set<string>> {
     const userObjId = new Types.ObjectId(userId);
     const linked = group.members.filter((m) => m.linkedUserId?.equals(userObjId));
     if (linked.length > 0) return new Set(linked.map((m) => m.name));
 
     if (group.userId.equals(userObjId)) {
-      const youMember = group.members.find((m) => m.name.trim().toLowerCase() === 'you' && !m.linkedUserId);
+      const youMember = group.members.find(
+        (m) => m.name.trim().toLowerCase() === 'you' && !m.linkedUserId,
+      );
       if (youMember) {
         youMember.linkedUserId = userObjId;
         youMember.status = 'registered';
@@ -769,11 +791,13 @@ export class GroupsService {
     const userObjId = currentUserId ? new Types.ObjectId(currentUserId) : null;
     const isOwner = userObjId ? group.userId.equals(userObjId) : false;
 
-    let currentMember = group.members.find((m) => userObjId && m.linkedUserId && m.linkedUserId.equals(userObjId));
+    let currentMember = group.members.find(
+      (m) => userObjId && m.linkedUserId && m.linkedUserId.equals(userObjId),
+    );
     if (!currentMember && isOwner) {
       currentMember = group.members.find((m) => m.name.toLowerCase() === 'you');
     }
-    const currentMemberName = currentMember ? currentMember.name : (isOwner ? 'You' : '');
+    const currentMemberName = currentMember ? currentMember.name : isOwner ? 'You' : '';
 
     return {
       id: group._id.toString(),
@@ -790,7 +814,7 @@ export class GroupsService {
         status: m.status,
         isCurrentUser: Boolean(
           (userObjId && m.linkedUserId && m.linkedUserId.equals(userObjId)) ||
-          (isOwner && m.name.toLowerCase() === 'you')
+          (isOwner && m.name.toLowerCase() === 'you'),
         ),
       })),
       expenses: expenses.map((e) => this.toPublicExpense(e)),

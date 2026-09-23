@@ -16,7 +16,9 @@ export class SubscriptionsController {
 
   @Get('stats')
   async getStats(@CurrentUser() user: CurrentUserPayload) {
-    return { monthlyChangePercent: await this.subscriptionsService.getMonthlyChangePercent(user.userId) };
+    return {
+      monthlyChangePercent: await this.subscriptionsService.getMonthlyChangePercent(user.userId),
+    };
   }
 
   @Post()

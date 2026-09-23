@@ -15,7 +15,7 @@ The official backend API service for **TrackKaro**, a personal finance, digital 
 - **🎯 Category Spending Budgets:** Monthly budget limits per category with automatic 80% and 100% threshold alerting.
 - **⏰ Smart Bill & EMI Reminders:** Scheduled reminder tracking with due dates and payment status.
 - **📱 Recurring Subscriptions & Redundancy Audit:** Tracks recurring annual and monthly commitments, calculates amortized monthly costs, and flags duplicate services.
-- **🛍️ Deals & Price Drop Tracking:** Manages promotional offers with custom price target alerts and live AI deal discovery.
+- **🛍️ Deals & Affiliate Engine:** A provider-abstracted, provider-neutral deal-discovery system — `GET /deals/search` tries real marketplace providers (Flipkart is the first, currently a credential-gated stub pending API approval) in the default `provider` engine mode, and never fabricates a product, price, or link. Real offers are deduplicated into a canonical `Product`/`MerchantOffer` catalog with an append-only `PriceHistory` (so "is this actually a low price?" is answerable from real data), a freshness/caching layer that avoids re-hitting a provider for an identical search, price-drop alerts (`DealAlert`), and affiliate click-through tracking (`DealClick`, with `isAffiliateResolved: false` until a provider's real affiliate-link resolver exists). The pre-existing Gemini-generated deal finder is preserved as an explicit `legacy` engine mode for side-by-side comparison during the Flipkart rollout (`DEALS_ENGINE_MODE=legacy`, or per-request `?engine=legacy`), and never touches the new catalog tables — see `src/modules/deals/providers/` and `src/modules/deals/engine/`.
 - **💰 Dynamic Savings Hub:** Computes genuine capital preserved from tracked deals, coupons, cashbacks, and eliminated subscriptions.
 - **🤖 Google Gemini 1.5 Flash AI Service:**
   - **Financial Copilot (`POST /assistant/messages`):** Ingests live user financial summaries and answers queries using Gemini 1.5 Flash with prompts tailored for India (INR ₹, UPI, EMIs).
@@ -94,6 +94,17 @@ GEMINI_API_KEY=AIzaSy...your_gemini_key_here
 # Gmail account used to send "forgot password" OTP emails (Optional — enables password reset)
 EMAIL_USER=youraccount@gmail.com
 EMAIL_PASSCODE=your-16-char-gmail-app-password
+
+# Deals engine mode — "provider" (default) is the production target: real marketplace providers
+# only (Flipkart, once credentialed below), no AI-generated deals. "legacy" restores the old
+# Gemini deal finder for comparison. Can also be overridden per-request: GET /deals/search?engine=legacy
+DEALS_ENGINE_MODE=provider
+
+# Flipkart Affiliate API credentials (Optional — the provider stays a stub, making no network
+# calls, until both are set AND the real API call is implemented in
+# src/modules/deals/providers/flipkart.provider.ts)
+FLIPKART_AFFILIATE_ID=
+FLIPKART_AFFILIATE_TOKEN=
 ```
 
 > **Note:** If `GEMINI_API_KEY` is not provided, the server will start normally and seamlessly use rule-based fallback responses for the assistant and receipt scanner.
@@ -160,8 +171,10 @@ npm run test:e2e
 | `GET` | `/reminders/stats` | Fetch live on-time payment rate percentage |
 | `GET` | `/subscriptions` | List recurring subscriptions and redundant services |
 | `GET` | `/subscriptions/stats` | Calculate amortized monthly subscription costs and MoM change % |
-| `GET` | `/deals` | Retrieve promotional deals and price targets |
-| `GET` | `/deals/search?q=:query` | **AI Deal Search:** Find real live deals using Gemini |
+| `GET` | `/deals` | Retrieve promotional deals and price targets (legacy `Deal` collection) |
+| `GET` | `/deals/search?q=:query&engine=` | **Deal discovery:** tries real providers (Flipkart) by default, returning `{status, engine, deals}`; `engine=legacy` opts into the old Gemini-generated search for comparison |
+| `PATCH` | `/deals/offers/:offerId/alert` | Create/update/disable a price-drop alert on a provider-mode merchant offer |
+| `POST` | `/deals/offers/:offerId/click` | Record a click-through and resolve where to redirect (affiliate link once implemented, else the plain deal URL) |
 | `GET` | `/savings` | Retrieve real aggregate savings metrics |
 | `GET` | `/savings/metrics` | Retrieve 5-month historical trend, MoM growth %, and computed saver tier |
 | `POST` | `/assistant/messages` | **Gemini AI Copilot:** Ask financial advice |

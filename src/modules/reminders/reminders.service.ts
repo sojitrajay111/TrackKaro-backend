@@ -76,14 +76,18 @@ export class RemindersService {
   private static readonly MIN_PAID_FOR_RATE = 3;
 
   async getStats(userId: string): Promise<ReminderStats> {
-    const paid = await this.reminderModel.find({ userId, status: 'paid', paidAt: { $exists: true } }).exec();
+    const paid = await this.reminderModel
+      .find({ userId, status: 'paid', paidAt: { $exists: true } })
+      .exec();
     if (paid.length < RemindersService.MIN_PAID_FOR_RATE) {
       return { onTimeRate: null };
     }
 
     // Compare calendar dates (YYYY-MM-DD) rather than exact timestamps — dueDate has no time
     // component, so paying at 11pm on the due date must still count as on time.
-    const onTime = paid.filter((r) => r.paidAt && r.paidAt.toISOString().slice(0, 10) <= r.dueDate).length;
+    const onTime = paid.filter(
+      (r) => r.paidAt && r.paidAt.toISOString().slice(0, 10) <= r.dueDate,
+    ).length;
     return { onTimeRate: Math.round((onTime / paid.length) * 100) };
   }
 

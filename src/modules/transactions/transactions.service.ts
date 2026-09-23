@@ -68,11 +68,13 @@ export class TransactionsService {
       notes: dto.notes,
     });
 
-    void this.notificationsService.create(userId, {
-      title: doc.type === 'income' ? 'Income Added' : 'Expense Added',
-      message: `${doc.type === 'income' ? 'Received' : 'Spent'} ₹${toMajorUnits(doc.amountMinor)} for "${doc.title}"`,
-      type: 'activity',
-    }).catch(() => {});
+    void this.notificationsService
+      .create(userId, {
+        title: doc.type === 'income' ? 'Income Added' : 'Expense Added',
+        message: `${doc.type === 'income' ? 'Received' : 'Spent'} ₹${toMajorUnits(doc.amountMinor)} for "${doc.title}"`,
+        type: 'activity',
+      })
+      .catch(() => {});
 
     return this.toPublic(doc);
   }
@@ -159,15 +161,18 @@ export class TransactionsService {
     Object.assign(existing, patch);
     await existing.save();
 
-    const changeSummary = changes.length > 0
-      ? `Updated "${existing.title}":\n• ${changes.join('\n• ')}`
-      : `Updated "${existing.title}" (₹${toMajorUnits(existing.amountMinor)})`;
+    const changeSummary =
+      changes.length > 0
+        ? `Updated "${existing.title}":\n• ${changes.join('\n• ')}`
+        : `Updated "${existing.title}" (₹${toMajorUnits(existing.amountMinor)})`;
 
-    void this.notificationsService.create(userId, {
-      title: `Personal Expense Updated: "${existing.title}"`,
-      message: changeSummary,
-      type: 'activity',
-    }).catch(() => {});
+    void this.notificationsService
+      .create(userId, {
+        title: `Personal Expense Updated: "${existing.title}"`,
+        message: changeSummary,
+        type: 'activity',
+      })
+      .catch(() => {});
 
     return this.toPublic(existing);
   }
@@ -176,7 +181,9 @@ export class TransactionsService {
     if (!userId) {
       throw new UnauthorizedException('User authentication required');
     }
-    const doc = await this.transactionModel.findOne({ _id: new Types.ObjectId(id), userId: new Types.ObjectId(userId) }).exec();
+    const doc = await this.transactionModel
+      .findOne({ _id: new Types.ObjectId(id), userId: new Types.ObjectId(userId) })
+      .exec();
     if (!doc) throw new NotFoundException('Transaction not found');
 
     const title = doc.title;
@@ -185,11 +192,13 @@ export class TransactionsService {
     const date = doc.date;
     await doc.deleteOne();
 
-    void this.notificationsService.create(userId, {
-      title: `Personal Expense Deleted: "${title}"`,
-      message: `Deleted "${title}":\n• Previous Amount: ₹${amount}\n• Category: ${category}\n• Date: ${date}`,
-      type: 'activity',
-    }).catch(() => {});
+    void this.notificationsService
+      .create(userId, {
+        title: `Personal Expense Deleted: "${title}"`,
+        message: `Deleted "${title}":\n• Previous Amount: ₹${amount}\n• Category: ${category}\n• Date: ${date}`,
+        type: 'activity',
+      })
+      .catch(() => {});
   }
 
   async deleteAllForUser(userId: string): Promise<void> {

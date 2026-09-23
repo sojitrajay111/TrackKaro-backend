@@ -210,7 +210,9 @@ export class AssistantService {
 
     // 6. Action AI: Subscription Audit
     const isSubscriptionQuery =
-      lower.includes('subscription') || lower.includes('duplicate sub') || lower.includes('unused sub');
+      lower.includes('subscription') ||
+      lower.includes('duplicate sub') ||
+      lower.includes('unused sub');
 
     if (isSubscriptionQuery) {
       const subReply = await this.replySubscriptions(userId);
@@ -414,7 +416,8 @@ Return strict JSON with:
 
         const parsed = JSON.parse(rawJson);
         const todayIso = new Date().toISOString().split('T')[0];
-        const date = parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : todayIso;
+        const date =
+          parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : todayIso;
 
         if (mode === 'expense') {
           let cat: CategoryName = 'Other';
@@ -697,9 +700,7 @@ Guidelines:
     // Safe discretionary spending limit
     const availableAfterBills = Math.max(0, currentBalance - upcomingBills);
     const safeSpendingLimit =
-      effectiveBudget > 0
-        ? Math.min(budgetRemaining, availableAfterBills)
-        : availableAfterBills;
+      effectiveBudget > 0 ? Math.min(budgetRemaining, availableAfterBills) : availableAfterBills;
 
     return {
       currentBalance,
@@ -799,7 +800,8 @@ Guidelines:
     if (currentBalance === 0 && requestedAmount > 0) {
       verdict = 'caution';
       verdictTitle = 'No income or balance recorded yet.';
-      verdictSubtitle = "Please log your income or bank balance using the '+' button to run an accurate affordability check.";
+      verdictSubtitle =
+        "Please log your income or bank balance using the '+' button to run an accurate affordability check.";
       warning = '⚠️ Your recorded balance is ₹0.';
     } else if (requestedAmount > currentBalance) {
       verdict = 'danger';
@@ -1041,9 +1043,7 @@ Return ONLY valid JSON with no markdown wrapping or extra comments.`;
       byCategory.set(tx.category, (byCategory.get(tx.category) ?? 0) + tx.amount);
     }
 
-    const topCategories = [...byCategory.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5);
+    const topCategories = [...byCategory.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
 
     const categoryLines = topCategories
       .map(([cat, amt]) => {
@@ -1174,10 +1174,7 @@ Return ONLY valid JSON with no markdown wrapping or extra comments.`;
         /\b(what('?s| is)?|how much( is)?|tell me|find( me)?|show( me)?|give me|check|search for|any)\b/gi,
         ' ',
       )
-      .replace(
-        /\b(the )?(best|lowest|cheapest|latest|top|good|discounted|special)?\b/gi,
-        ' ',
-      )
+      .replace(/\b(the )?(best|lowest|cheapest|latest|top|good|discounted|special)?\b/gi, ' ')
       .replace(
         /\b(price|prices|pricing|deal|deals|offer|offers|discount|discounts|coupon|coupons|rate|rates|cost|costs)\b/gi,
         ' ',
@@ -1209,7 +1206,7 @@ Return ONLY valid JSON with no markdown wrapping or extra comments.`;
     // 2. If no exact match and user asked for a specific product, search live via AI!
     if (!topDeal && cleanQ.length > 2) {
       try {
-        const freshDeals = await this.dealsService.findRealDealsWithAI(userId, cleanQ);
+        const freshDeals = await this.dealsService.discoverDeals(userId, cleanQ);
         if (freshDeals && freshDeals.length > 0) {
           deals = freshDeals;
           topDeal = deals.find((d) => {
@@ -1237,8 +1234,12 @@ Return ONLY valid JSON with no markdown wrapping or extra comments.`;
               t.includes('iphone') ||
               c.includes('electronics'))) ||
           (rawQ.includes('laptop') &&
-            (t.includes('laptop') || t.includes('hp') || t.includes('macbook') || c.includes('electronics'))) ||
-          (rawQ.includes('shoe') && (t.includes('shoe') || t.includes('nike') || t.includes('sneaker'))) ||
+            (t.includes('laptop') ||
+              t.includes('hp') ||
+              t.includes('macbook') ||
+              c.includes('electronics'))) ||
+          (rawQ.includes('shoe') &&
+            (t.includes('shoe') || t.includes('nike') || t.includes('sneaker'))) ||
           (rawQ.includes('swiggy') && (t.includes('swiggy') || c.includes('food'))) ||
           t.includes(rawQ)
         );

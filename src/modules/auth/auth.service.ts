@@ -24,7 +24,11 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { RefreshToken, RefreshTokenDocument } from './schemas/refresh-token.schema';
-import { MAX_VERIFY_ATTEMPTS, PasswordResetOtp, PasswordResetOtpDocument } from './schemas/password-reset-otp.schema';
+import {
+  MAX_VERIFY_ATTEMPTS,
+  PasswordResetOtp,
+  PasswordResetOtpDocument,
+} from './schemas/password-reset-otp.schema';
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 
@@ -41,7 +45,8 @@ const BCRYPT_ROUNDS = 12;
 export class AuthService {
   constructor(
     @InjectModel(RefreshToken.name) private readonly refreshTokenModel: Model<RefreshTokenDocument>,
-    @InjectModel(PasswordResetOtp.name) private readonly passwordResetOtpModel: Model<PasswordResetOtpDocument>,
+    @InjectModel(PasswordResetOtp.name)
+    private readonly passwordResetOtpModel: Model<PasswordResetOtpDocument>,
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService<AppConfig>,
@@ -129,7 +134,9 @@ export class AuthService {
   }
 
   async logoutAll(userId: string): Promise<{ success: true }> {
-    await this.refreshTokenModel.updateMany({ userId: new Types.ObjectId(userId) }, { revoked: true }).exec();
+    await this.refreshTokenModel
+      .updateMany({ userId: new Types.ObjectId(userId) }, { revoked: true })
+      .exec();
     return { success: true };
   }
 
@@ -163,7 +170,10 @@ export class AuthService {
 
     if (record.attempts >= MAX_VERIFY_ATTEMPTS) {
       await record.deleteOne();
-      throw new HttpException('Too many incorrect attempts. Request a new code.', HttpStatus.TOO_MANY_REQUESTS);
+      throw new HttpException(
+        'Too many incorrect attempts. Request a new code.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
 
     if (record.otpHash !== this.hashToken(dto.otp)) {

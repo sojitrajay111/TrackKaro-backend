@@ -4,56 +4,17 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 
 import { formatINR, toMajorUnits, toMinorUnits } from '@/common/money/money.util';
+import { AppConfig } from '@/config/configuration';
 import { BudgetsService } from '@/modules/budgets/budgets.service';
 import { NotificationsService } from '@/modules/notifications/notifications.service';
 import { RemindersService } from '@/modules/reminders/reminders.service';
 import { TransactionsService } from '@/modules/transactions/transactions.service';
+import { DealsProviderRegistry } from './providers/deals-provider.registry';
+import { GeminiLegacyDealsProvider } from './providers/gemini-legacy.provider';
+import { getPlatformSearchUrl } from './providers/platform-links.util';
+import { DealsProvider, ProviderDealResult } from './providers/deals-provider.interface';
 import { Deal, DealDocument } from './schemas/deal.schema';
-
-export interface PublicDeal {
-  id: string;
-  title: string;
-  platform: string;
-  category: string;
-  originalPrice: number;
-  currentPrice: number;
-  discountPercent: number;
-  couponCode?: string;
-  cashbackText?: string;
-  deliveryCharge: number;
-  finalPrice: number;
-  savingsAmount: number;
-  expiryDate: string;
-  bestReason: string;
-  rating?: number;
-  imageUrl?: string;
-  tracked?: boolean;
-  targetPrice?: number;
-  dealUrl?: string;
-  sourceUrl?: string;
-  sourceType?: string;
-  verifiedAt?: string;
-  lastCheckedAt?: string;
-  priceVerified?: boolean;
-  urlVerified?: boolean;
-  offerConditions?: string[];
-  aiReason?: string;
-  purchaseCheck?: {
-    status: 'SAFE' | 'WAIT';
-    reason: string;
-  };
-  dealScore?: number;
-  relevanceScore?: number;
-  confidence?: number;
-}
-
-export interface UserFinancialProfile {
-  currentBalance: number;
-  upcomingBills: number;
-  safeSpendingLimit: number;
-  topCategories: { category: string; spent: number }[];
-  budgetMap: Map<string, { limit: number; spent: number; remaining: number }>;
-}
+import { DealsEngineMode, PublicDeal, UserFinancialProfile } from './types';
 
 @Injectable()
 export class DealsService {
@@ -62,18 +23,20 @@ export class DealsService {
   constructor(
     @InjectModel(Deal.name) private readonly dealModel: Model<DealDocument>,
     private readonly notificationsService: NotificationsService,
-    private readonly configService: ConfigService,
+    private readonly configService: ConfigService<AppConfig>,
     private readonly transactionsService: TransactionsService,
     private readonly budgetsService: BudgetsService,
     private readonly remindersService: RemindersService,
+    private readonly dealsProviderRegistry: DealsProviderRegistry,
+    private readonly geminiLegacyProvider: GeminiLegacyDealsProvider,
   ) {}
 
   async seedDefaultDeals(userId: string): Promise<void> {
     try {
-      await this.findRealDealsWithAI(userId);
+      await this.discoverDeals(userId);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      this.logger.warn(`Could not seed live AI deals: ${message}`);
+      this.logger.warn(`Could not seed deals: ${message}`);
     }
   }
 
@@ -99,9 +62,12 @@ export class DealsService {
       // ignore cleanup errors
     }
 
-    const docs = await this.dealModel.find({ userId }).sort({ dealScore: -1, createdAt: -1 }).exec();
+    const docs = await this.dealModel
+      .find({ userId })
+      .sort({ dealScore: -1, createdAt: -1 })
+      .exec();
     if (docs.length === 0) {
-      return this.findRealDealsWithAI(userId);
+      return this.discoverDeals(userId);
     }
     return docs.map((doc) => this.toPublic(doc));
   }
@@ -120,7 +86,9 @@ export class DealsService {
   > {
     const docs = await this.dealModel
       .find({ userId, tracked: true })
-      .select('savingsAmountMinor couponCode cashbackText currentPriceMinor discountPercent createdAt')
+      .select(
+        'savingsAmountMinor couponCode cashbackText currentPriceMinor discountPercent createdAt',
+      )
       .exec();
     return docs.map((d) => ({
       savingsAmountMinor: d.savingsAmountMinor,
@@ -360,7 +328,8 @@ export class DealsService {
 
   mapDealCategoryToExpenseCategory(cat: string): string {
     const lower = String(cat || '').toLowerCase();
-    if (lower.includes('food') || lower.includes('dine') || lower.includes('restaurant')) return 'Food';
+    if (lower.includes('food') || lower.includes('dine') || lower.includes('restaurant'))
+      return 'Food';
     if (lower.includes('grocery') || lower.includes('kirana') || lower.includes('supermarket'))
       return 'Groceries';
     if (lower.includes('fashion') || lower.includes('shoe') || lower.includes('cloth'))
@@ -374,480 +343,249 @@ export class DealsService {
     return 'Shopping';
   }
 
-  /**
-   * Main entry point for deal retrieval & real-time discovery.
-   */
-  async findRealDealsWithAI(userId: string, query?: string): Promise<PublicDeal[]> {
-    const profile = await this.getUserFinancialProfile(userId);
-    const geminiKey = this.configService.get<string>('geminiApiKey') || process.env.GEMINI_API_KEY;
-
-    if (geminiKey) {
-      try {
-        const deals = await this.findRealDealsWithGemini(userId, query, geminiKey, profile);
-        if (deals && deals.length > 0) {
-          return deals;
-        }
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        this.logger.warn(`Gemini deal finder failed: ${message}`);
-      }
-    }
-
-    return this.findAll(userId);
+  /** Reads the configured deals engine mode (`DEALS_ENGINE_MODE`), defaulting to the production
+   * target ('provider') when unset. */
+  /** Public so `MarketplaceDealsService` (the new `/deals/search` orchestrator) can resolve the
+   * same configured default without duplicating config-reading logic. */
+  engineMode(): DealsEngineMode {
+    return this.configService.get('deals', { infer: true })?.engineMode ?? 'provider';
   }
 
-  private async findRealDealsWithGemini(
+  /**
+   * Main entry point for deal discovery.
+   *
+   * 'provider' mode (the target production path, and the default): tries every registered
+   * real-marketplace provider (Flipkart today) in order, and stops at the first one that
+   * returns real results. It deliberately does NOT fall back to the legacy AI engine — an
+   * unconfigured/not-yet-implemented provider should surface as "no deals available", never as
+   * an AI-invented substitute, per the core product rule.
+   *
+   * 'legacy' mode: runs only the old Gemini-generated deal finder, kept for side-by-side
+   * comparison during the Flipkart integration rollout. Select it via `DEALS_ENGINE_MODE=legacy`
+   * in the environment, or per-request with `?engine=legacy` on `GET /deals/search`.
+   */
+  async discoverDeals(
+    userId: string,
+    query?: string,
+    engineOverride?: DealsEngineMode,
+  ): Promise<PublicDeal[]> {
+    const profile = await this.getUserFinancialProfile(userId);
+    const mode = engineOverride ?? this.engineMode();
+
+    if (mode === 'legacy') {
+      return this.runProvider(this.geminiLegacyProvider, userId, query, profile);
+    }
+
+    for (const provider of this.dealsProviderRegistry.getProviders()) {
+      if (!provider.isConfigured()) continue;
+      const result = await this.runProvider(provider, userId, query, profile);
+      if (result.length > 0) return result;
+    }
+
+    this.logger.log(
+      '[deals] no configured provider produced results — returning empty (no fabrication).',
+    );
+    return [];
+  }
+
+  private async runProvider(
+    provider: DealsProvider,
     userId: string,
     query: string | undefined,
-    geminiKey: string,
     profile: UserFinancialProfile,
   ): Promise<PublicDeal[]> {
-    const todayStr = new Date().toISOString().split('T')[0];
+    try {
+      const result = await provider.search({ userId, query, profile });
+      if (result.status !== 'ok' || result.deals.length === 0) {
+        if (result.message) {
+          this.logger.log(
+            `[deals] provider "${provider.id}": ${result.status} — ${result.message}`,
+          );
+        }
+        return [];
+      }
+      return this.rankAndPersistProviderDeals(userId, query, provider.id, result.deals, profile);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`[deals] provider "${provider.id}" threw: ${message}`);
+      return [];
+    }
+  }
+
+  private getCategoryFallbackImage(cat: string, title = ''): string {
+    const lower = title.toLowerCase();
+
+    // Footwear / Shoes
+    if (
+      lower.includes('shoe') ||
+      lower.includes('sneaker') ||
+      lower.includes('running') ||
+      lower.includes('nike') ||
+      lower.includes('puma') ||
+      lower.includes('adidas')
+    ) {
+      return 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=600&q=80';
+    }
+
+    // Food / Dining / Meals
+    if (
+      lower.includes('swiggy') ||
+      lower.includes('zomato') ||
+      lower.includes('burger') ||
+      lower.includes('pizza') ||
+      lower.includes('biryani') ||
+      lower.includes('food')
+    ) {
+      return 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=600&q=80';
+    }
+
+    // Grocery / Essentials / Pantry
+    if (
+      lower.includes('blinkit') ||
+      lower.includes('zepto') ||
+      lower.includes('grocery') ||
+      lower.includes('kirana') ||
+      lower.includes('pantry') ||
+      lower.includes('oil') ||
+      lower.includes('atta')
+    ) {
+      return 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80';
+    }
+
+    // Audio / Headphones / Earbuds
+    if (
+      lower.includes('headphone') ||
+      lower.includes('earbud') ||
+      lower.includes('tws') ||
+      lower.includes('sony wh') ||
+      lower.includes('boat') ||
+      lower.includes('airpod')
+    ) {
+      return 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80';
+    }
+
+    // Travel / Flight / Hotel
+    if (
+      lower.includes('flight') ||
+      lower.includes('hotel') ||
+      lower.includes('trip') ||
+      lower.includes('travel') ||
+      lower.includes('makemytrip')
+    ) {
+      return 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?auto=format&fit=crop&w=600&q=80';
+    }
+
+    // Appliances / Kitchen / Home
+    if (
+      lower.includes('air fryer') ||
+      lower.includes('microwave') ||
+      lower.includes('mixer') ||
+      lower.includes('cooker') ||
+      lower.includes('appliance') ||
+      lower.includes('philips')
+    ) {
+      return 'https://images.unsplash.com/photo-1585515320310-259814833e62?auto=format&fit=crop&w=600&q=80';
+    }
+
+    // Tech & Phones
+    if (lower.includes('iphone 16') || lower.includes('16 pro') || lower.includes('iphone 15')) {
+      return 'https://images.unsplash.com/photo-1695048133142-1a20484d2569?auto=format&fit=crop&w=600&q=80';
+    }
+    if (lower.includes('s24') || lower.includes('galaxy s') || lower.includes('samsung')) {
+      return 'https://images.unsplash.com/photo-1610945265064-0e34e5519bbf?auto=format&fit=crop&w=600&q=80';
+    }
+    if (lower.includes('macbook') || lower.includes('laptop')) {
+      return 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=600&q=80';
+    }
+
+    switch (cat) {
+      case 'Electronics':
+        return 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80';
+      case 'Fashion':
+        return 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=600&q=80';
+      case 'Food':
+        return 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=600&q=80';
+      case 'Beauty':
+        return 'https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&w=600&q=80';
+      case 'Travel':
+        return 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?auto=format&fit=crop&w=600&q=80';
+      case 'Home':
+        return 'https://images.unsplash.com/photo-1585515320310-259814833e62?auto=format&fit=crop&w=600&q=80';
+      default:
+        return 'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?auto=format&fit=crop&w=600&q=80';
+    }
+  }
+
+  /**
+   * Provider-agnostic layer: takes already-real deal data from any `DealsProvider`, applies
+   * TrackKaro's own interpretation on top (purchase-safety check, multi-factor ranking, a
+   * fallback category image when the provider didn't supply one), persists it, and returns the
+   * public shape. Nothing in this method invents a product, price or link — it only scores and
+   * displays what the provider already gave it.
+   */
+  private async rankAndPersistProviderDeals(
+    userId: string,
+    query: string | undefined,
+    providerId: string,
+    deals: ProviderDealResult[],
+    profile: UserFinancialProfile,
+  ): Promise<PublicDeal[]> {
     const expiryMinStr = new Date(Date.now() + 86400000 * 7).toISOString().split('T')[0];
 
-    // 1. Google Search Grounding for verified live offers
-    const groundedDeals = await this.findRealDealsWithGeminiGrounding(
-      userId,
-      query,
-      geminiKey,
-      todayStr,
-      expiryMinStr,
-      profile,
-    );
-    if (groundedDeals && groundedDeals.length > 0) {
-      this.logger.log(`Retrieved ${groundedDeals.length} Google Search-grounded live deals.`);
-      return groundedDeals;
-    }
-
-    // 2. Standard Synthesis Fallback
-    return this.findRealDealsWithGeminiStandard(
-      userId,
-      query,
-      geminiKey,
-      todayStr,
-      expiryMinStr,
-      profile,
-    );
-  }
-
-  /**
-   * Queries Google Search-grounded Gemini to extract live real-time retail deals from the web.
-   * Eliminates forced category quotas and hardcoded iPhone anchors.
-   */
-  private async findRealDealsWithGeminiGrounding(
-    userId: string,
-    query: string | undefined,
-    geminiKey: string,
-    todayStr: string,
-    expiryMinStr: string,
-    profile: UserFinancialProfile,
-  ): Promise<PublicDeal[] | null> {
-    const topCatString =
-      profile.topCategories.length > 0
-        ? profile.topCategories.map((c) => `${c.category} (₹${formatINR(c.spent)})`).join(', ')
-        : 'Food, Shopping, Groceries';
-
-    const prompt =
-      query && query !== 'All'
-        ? `Search live Indian e-commerce and retail websites for currently active, verified purchase deals, coupons, and discounts in India for: "${query}".
-Today's date is ${todayStr}.
-Target reputable Indian retailers (e.g. Amazon.in, Flipkart, Myntra, Ajio, Croma, Swiggy, Nykaa, or official brand stores).
-Extract genuine retail prices, MRP, real instant bank discounts or coupons, and EXACT merchant product URLs (prefer exact product page, fallback to direct search query URL).
-Do NOT invent products, fake prices, or expired coupons.
-
-Return ONLY a valid JSON array of verified deal objects with this exact structure:
-[
-  {
-    "title": "Exact Product Name with storage/size/spec",
-    "platform": "Merchant or Brand Name",
-    "category": "Electronics",
-    "originalPrice": 2499,
-    "currentPrice": 1499,
-    "discountPercent": 40,
-    "couponCode": "FLAT200",
-    "cashbackText": "Bank/Card offer if applicable",
-    "deliveryCharge": 0,
-    "finalPrice": 1299,
-    "savingsAmount": 1200,
-    "dealUrl": "Exact merchant product URL or search URL",
-    "sourceUrl": "Source domain or retailer site",
-    "offerConditions": ["Applicable on Prepaid orders or HDFC Card"],
-    "bestReason": "Verified live retailer discount with coupon."
-  }
-]
-Do not wrap in markdown or backticks. Return ONLY the raw JSON array.`
-        : `Search live Indian e-commerce platforms for the strongest, currently verified retail deals, promotional discounts, and verified coupons in India across consumer categories: Food & Dining (Swiggy, Zomato), Groceries (Blinkit, Zepto, Amazon Fresh), Fashion & Footwear (Myntra, Ajio, Nike), Electronics & Audio (Amazon.in, Flipkart, Croma, Sony, boAt), Travel (MakeMyTrip, Cleartrip), and Home.
-Today's date is ${todayStr}.
-User spending profile: User frequently spends on: ${topCatString}. Surface compelling verified offers that help save in these categories alongside other standout Indian deals.
-
-CRITICAL INSTRUCTIONS:
-1. DO NOT force arbitrary category quotas. Do NOT invent deals just to satisfy a category. Only return genuinely verified current offers supported by real merchant data. If a category has no strong verified offer today, return 0 deals for it.
-2. Ensure broad multi-category coverage across Indian everyday life (Food, Groceries, Fashion, Tech). Do NOT focus solely on any single device or category.
-3. Extract actual merchant prices, genuine MRP, instant discounts, verified coupon codes, and EXACT product links where available.
-4. Return between 6 and 12 top verified deals.
-
-Return ONLY a valid JSON array of verified deal objects with this exact structure:
-[
-  {
-    "title": "Exact Product or Offer Name",
-    "platform": "Merchant (e.g. Myntra, Swiggy, Amazon.in, Flipkart, Blinkit)",
-    "category": "Fashion",
-    "originalPrice": 2999,
-    "currentPrice": 1799,
-    "discountPercent": 40,
-    "couponCode": "SAVE40",
-    "cashbackText": "Flat ₹200 off with code",
-    "deliveryCharge": 0,
-    "finalPrice": 1599,
-    "savingsAmount": 1400,
-    "dealUrl": "Exact merchant product or offer URL",
-    "sourceUrl": "Merchant website",
-    "offerConditions": ["Valid on orders above ₹999"],
-    "bestReason": "Verified 40% discount on Myntra with active coupon."
-  }
-]
-Do not wrap in markdown or backticks. Return ONLY the raw JSON array.`;
-
-    const candidateModels = ['gemini-2.5-flash', 'gemini-3.6-flash'];
-    for (const model of candidateModels) {
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            tools: [{ google_search: {} }],
-          }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          let rawJson = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-          if (rawJson) {
-            if (rawJson.startsWith('```')) {
-              rawJson = rawJson.replace(/^```json?\s*/i, '').replace(/\s*```$/, '');
-            }
-            const parsed = JSON.parse(rawJson);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              const valid = parsed.filter((d: any) => {
-                const fin = Number(d.finalPrice || d.currentPrice || d.originalPrice) || 0;
-                return (
-                  fin > 100 &&
-                  d.title &&
-                  String(d.title).trim().length > 3 &&
-                  d.platform &&
-                  String(d.platform).trim().length > 2
-                );
-              });
-              if (valid.length > 0) {
-                return await this.persistGeneratedDeals(userId, query, valid, expiryMinStr, profile);
-              }
-            }
-          }
-        }
-      } catch (err: unknown) {
-        this.logger.warn(`Gemini (${model}) Grounded Deals search error: ${err}`);
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Fallback generation with verified Indian retail market realism when web search tool is limited.
-   */
-  private async findRealDealsWithGeminiStandard(
-    userId: string,
-    query: string | undefined,
-    geminiKey: string,
-    todayStr: string,
-    expiryMinStr: string,
-    profile: UserFinancialProfile,
-  ): Promise<PublicDeal[]> {
-    const topCatString =
-      profile.topCategories.length > 0
-        ? profile.topCategories.map((c) => `${c.category} (₹${formatINR(c.spent)})`).join(', ')
-        : 'Food, Shopping, Groceries';
-
-    const prompt = `You are TrackKaro's Indian Deal Intelligence Engine. Today's date is ${todayStr} (Year 2026).
-Find current, realistic promotional discounts and offers available in India across platforms like Amazon.in, Flipkart, Myntra, Swiggy, Zomato, Croma, Blinkit, Nykaa, or MakeMyTrip ${
-      query && query !== 'All'
-        ? `specifically for: "${query}". Every returned item MUST be a genuine offer directly relevant to "${query}".`
-        : `with high-quality verified offers across major Indian consumer categories (Food, Groceries, Fashion, Electronics, Travel). User spends heavily on: ${topCatString}.`
-    }.
-
-AUTHENTIC INDIAN MARKET BENCHMARKS (INR):
-- Myntra Fashion / Footwear: 30% - 50% discount on Nike/Puma/Levis with coupons.
-- Swiggy / Zomato: ₹100 - ₹150 off with codes on gourmet and top restaurants.
-- Blinkit / Zepto: 10% - 15% cashback or flat ₹100 off on first monthly pantry orders.
-- Audio (Sony WH-CH520 / boAt Nirvana): MRP ₹4,990, discounted to ₹3,499 on Amazon/Croma.
-- Laptops / Gadgets: Authentic 10% - 20% festive/card offers.
-- MakeMyTrip / Cleartrip: Instant ₹1,000 - ₹1,500 bank discount on domestic flights.
-
-CRITICAL: Return only genuine, verified offers. Do not invent products or inflate discounts. Do NOT focus exclusively on iPhones.
-Categories must be one of: "Electronics", "Fashion", "Food", "Beauty", "Travel", "Home".
-
-Return ONLY a valid JSON array matching this format:
-[
-  {
-    "title": "Product or Offer Title",
-    "platform": "Merchant (e.g. Myntra, Amazon.in, Swiggy)",
-    "category": "Fashion",
-    "originalPrice": 4999,
-    "currentPrice": 2999,
-    "discountPercent": 40,
-    "couponCode": "SAVE40",
-    "cashbackText": "Instant ₹200 off with code",
-    "deliveryCharge": 0,
-    "finalPrice": 2799,
-    "savingsAmount": 2200,
-    "expiryDate": "${expiryMinStr}",
-    "bestReason": "Verified 40% discount on Myntra with active coupon.",
-    "rating": 4.5,
-    "dealUrl": "https://www.myntra.com/running-shoes",
-    "sourceUrl": "myntra.com",
-    "offerConditions": ["Valid on orders above ₹1,499"]
-  }
-]
-Return ONLY a valid raw JSON array without markdown backticks.`;
-
-    const candidateModels = ['gemini-3.6-flash', 'gemini-2.5-flash'];
-    for (const model of candidateModels) {
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              temperature: 0.2,
-              responseMimeType: 'application/json',
-            },
-          }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          const rawJson = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (rawJson) {
-            const parsed = JSON.parse(rawJson);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              return await this.persistGeneratedDeals(userId, query, parsed, expiryMinStr, profile);
-            }
-          }
-        }
-      } catch (err: unknown) {
-        this.logger.warn(`Gemini standard generation error: ${err}`);
-      }
-    }
-
-    return this.findAll(userId);
-  }
-
-  /**
-   * Validates, evaluates financial conscience, ranks with multi-factor scoring,
-   * and persists deals to MongoDB.
-   */
-  private async persistGeneratedDeals(
-    userId: string,
-    query: string | undefined,
-    parsed: any[],
-    expiryMinStr: string,
-    profile: UserFinancialProfile,
-  ): Promise<PublicDeal[]> {
-    const normalizeCategory = (cat: string): string => {
-      const lower = String(cat || '').toLowerCase();
-      if (lower.includes('elect') || lower.includes('gadget') || lower.includes('phone') || lower.includes('laptop'))
-        return 'Electronics';
-      if (lower.includes('fash') || lower.includes('cloth') || lower.includes('shoe') || lower.includes('wear'))
-        return 'Fashion';
-      if (lower.includes('food') || lower.includes('dine') || lower.includes('restaurant') || lower.includes('meal'))
-        return 'Food';
-      if (lower.includes('beaut') || lower.includes('skin') || lower.includes('cosmetic'))
-        return 'Beauty';
-      if (lower.includes('travel') || lower.includes('flight') || lower.includes('hotel') || lower.includes('trip'))
-        return 'Travel';
-      if (lower.includes('home') || lower.includes('kitchen') || lower.includes('appliance') || lower.includes('bed'))
-        return 'Home';
-      return 'Shopping';
-    };
-
-    const getCategoryFallbackImage = (cat: string, title = ''): string => {
-      const lower = title.toLowerCase();
-
-      // Footwear / Shoes
-      if (
-        lower.includes('shoe') ||
-        lower.includes('sneaker') ||
-        lower.includes('running') ||
-        lower.includes('nike') ||
-        lower.includes('puma') ||
-        lower.includes('adidas')
-      ) {
-        return 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=600&q=80';
-      }
-
-      // Food / Dining / Meals
-      if (
-        lower.includes('swiggy') ||
-        lower.includes('zomato') ||
-        lower.includes('burger') ||
-        lower.includes('pizza') ||
-        lower.includes('biryani') ||
-        lower.includes('food')
-      ) {
-        return 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=600&q=80';
-      }
-
-      // Grocery / Essentials / Pantry
-      if (
-        lower.includes('blinkit') ||
-        lower.includes('zepto') ||
-        lower.includes('grocery') ||
-        lower.includes('kirana') ||
-        lower.includes('pantry') ||
-        lower.includes('oil') ||
-        lower.includes('atta')
-      ) {
-        return 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80';
-      }
-
-      // Audio / Headphones / Earbuds
-      if (
-        lower.includes('headphone') ||
-        lower.includes('earbud') ||
-        lower.includes('tws') ||
-        lower.includes('sony wh') ||
-        lower.includes('boat') ||
-        lower.includes('airpod')
-      ) {
-        return 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80';
-      }
-
-      // Travel / Flight / Hotel
-      if (
-        lower.includes('flight') ||
-        lower.includes('hotel') ||
-        lower.includes('trip') ||
-        lower.includes('travel') ||
-        lower.includes('makemytrip')
-      ) {
-        return 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?auto=format&fit=crop&w=600&q=80';
-      }
-
-      // Appliances / Kitchen / Home
-      if (
-        lower.includes('air fryer') ||
-        lower.includes('microwave') ||
-        lower.includes('mixer') ||
-        lower.includes('cooker') ||
-        lower.includes('appliance') ||
-        lower.includes('philips')
-      ) {
-        return 'https://images.unsplash.com/photo-1585515320310-259814833e62?auto=format&fit=crop&w=600&q=80';
-      }
-
-      // Tech & Phones
-      if (lower.includes('iphone 16') || lower.includes('16 pro') || lower.includes('iphone 15')) {
-        return 'https://images.unsplash.com/photo-1695048133142-1a20484d2569?auto=format&fit=crop&w=600&q=80';
-      }
-      if (lower.includes('s24') || lower.includes('galaxy s') || lower.includes('samsung')) {
-        return 'https://images.unsplash.com/photo-1610945265064-0e34e5519bbf?auto=format&fit=crop&w=600&q=80';
-      }
-      if (lower.includes('macbook') || lower.includes('laptop')) {
-        return 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=600&q=80';
-      }
-
-      switch (cat) {
-        case 'Electronics':
-          return 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80';
-        case 'Fashion':
-          return 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=600&q=80';
-        case 'Food':
-          return 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=600&q=80';
-        case 'Beauty':
-          return 'https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&w=600&q=80';
-        case 'Travel':
-          return 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?auto=format&fit=crop&w=600&q=80';
-        case 'Home':
-          return 'https://images.unsplash.com/photo-1585515320310-259814833e62?auto=format&fit=crop&w=600&q=80';
-        default:
-          return 'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?auto=format&fit=crop&w=600&q=80';
-      }
-    };
-
+    // Clear stale untracked deals in whichever categories this batch is about to replace, rather
+    // than re-deriving a category from the free-text `query` (which providers' categories don't
+    // necessarily share a vocabulary with) — a general, provider-agnostic replace-on-refresh.
     if (query && query !== 'All') {
-      const targetCat = normalizeCategory(query);
+      const categoriesInBatch = [...new Set(deals.map((d) => d.category))];
       await this.dealModel
-        .deleteMany({ userId, tracked: false, category: targetCat })
+        .deleteMany({ userId, tracked: false, category: { $in: categoriesInBatch } })
         .exec();
     } else {
       await this.dealModel.deleteMany({ userId, tracked: false }).exec();
     }
 
     const now = new Date();
-    const dealDocs = parsed.map((d: any) => {
-      const cat = normalizeCategory(d.category);
-      const platform = String(d.platform || 'Amazon');
-      const orig = Math.max(1, Number(d.originalPrice) || Number(d.currentPrice) || 1000);
-      const curr = Math.max(1, Number(d.currentPrice) || orig);
-      const fin = Math.max(1, Number(d.finalPrice) || curr);
-      const sav = Math.max(0, orig - fin);
-      const disc = Math.min(99, Math.max(0, Math.round(Number(d.discountPercent) || (sav / orig) * 100)));
+    const dealDocs = deals.map((d) => {
+      const purchaseCheck = this.calculatePurchaseCheck(d.finalPrice, d.category, profile);
+      const { relevanceScore, finalRankScore } = this.calculateMultiFactorRank(d, profile);
 
-      // AI Purchase Check
-      const purchaseCheck = this.calculatePurchaseCheck(fin, cat, profile);
-
-      // Multi-factor Ranking
-      const { dealScore, relevanceScore, finalRankScore } = this.calculateMultiFactorRank(
-        { ...d, savingsAmount: sav, discountPercent: disc, platform, category: cat },
-        profile,
-      );
-
-      const title = String(d.title || 'Special Deal').trim();
-      const directUrl = d.dealUrl && String(d.dealUrl).startsWith('http')
-        ? String(d.dealUrl).trim()
-        : this.getPlatformSearchUrl(platform, title);
-
-      // Contextual relevance reason
-      const mappedExpenseCat = this.mapDealCategoryToExpenseCategory(cat);
+      const mappedExpenseCat = this.mapDealCategoryToExpenseCategory(d.category);
       const isTopUserCat = profile.topCategories.some((tc) => tc.category === mappedExpenseCat);
       const aiReason = isTopUserCat
         ? `Matches your frequent spend in ${mappedExpenseCat}`
-        : (d.bestReason || 'Verified Indian retail discount');
+        : d.bestReason || 'Deal from ' + providerId;
 
       return {
         userId: new Types.ObjectId(userId),
-        title,
-        platform,
-        category: cat,
-        originalPriceMinor: toMinorUnits(orig),
-        currentPriceMinor: toMinorUnits(curr),
-        discountPercent: disc,
-        couponCode: d.couponCode ? String(d.couponCode).trim() : undefined,
-        cashbackText: d.cashbackText ? String(d.cashbackText).trim() : undefined,
-        deliveryChargeMinor: toMinorUnits(Number(d.deliveryCharge) || 0),
-        finalPriceMinor: toMinorUnits(fin),
-        savingsAmountMinor: toMinorUnits(sav),
+        title: d.title,
+        platform: d.platform,
+        category: d.category,
+        originalPriceMinor: toMinorUnits(d.originalPrice),
+        currentPriceMinor: toMinorUnits(d.currentPrice),
+        discountPercent: d.discountPercent,
+        couponCode: d.couponCode,
+        cashbackText: d.cashbackText,
+        deliveryChargeMinor: toMinorUnits(d.deliveryCharge),
+        finalPriceMinor: toMinorUnits(d.finalPrice),
+        savingsAmountMinor: toMinorUnits(d.savingsAmount),
         expiryDate: d.expiryDate || expiryMinStr,
-        bestReason: d.bestReason || 'Verified live retailer discount.',
-        rating: Number(d.rating) || 4.5,
-        imageUrl: d.imageUrl || getCategoryFallbackImage(cat, title),
+        bestReason: d.bestReason || 'Deal from ' + providerId,
+        rating: d.rating,
+        imageUrl: d.imageUrl || this.getCategoryFallbackImage(d.category, d.title),
         tracked: false,
-        dealUrl: directUrl,
-        sourceUrl: d.sourceUrl ? String(d.sourceUrl).trim() : directUrl,
-        sourceType: 'web_search_grounding',
+        dealUrl: d.dealUrl || getPlatformSearchUrl(d.platform, d.title),
+        sourceUrl: d.sourceUrl ?? d.dealUrl,
+        sourceType: providerId,
         verifiedAt: now,
         lastCheckedAt: now,
-        priceVerified: true,
-        urlVerified: true,
-        offerConditions: Array.isArray(d.offerConditions) ? d.offerConditions : [],
+        priceVerified: d.priceVerified ?? false,
+        urlVerified: d.urlVerified ?? false,
+        offerConditions: d.offerConditions ?? [],
         aiReason,
         purchaseCheck,
         dealScore: finalRankScore,
         relevanceScore,
-        confidence: 1,
+        confidence: d.confidence ?? 1,
       };
     });
 
@@ -856,28 +594,6 @@ Return ONLY a valid raw JSON array without markdown backticks.`;
 
     await this.dealModel.insertMany(dealDocs);
     return this.findAll(userId);
-  }
-
-  getPlatformSearchUrl(platform: string, title: string): string {
-    const p = (platform || '').toLowerCase().trim();
-    const encoded = encodeURIComponent(title || '');
-    if (p.includes('amazon')) return `https://www.amazon.in/s?k=${encoded}`;
-    if (p.includes('flipkart')) return `https://www.flipkart.com/search?q=${encoded}`;
-    if (p.includes('myntra'))
-      return `https://www.myntra.com/${encodeURIComponent((title || '').replace(/\s+/g, '-'))}`;
-    if (p.includes('swiggy')) return `https://www.swiggy.com/search?query=${encoded}`;
-    if (p.includes('zomato')) return `https://www.zomato.com/india`;
-    if (p.includes('blinkit')) return `https://www.blinkit.com/s/?q=${encoded}`;
-    if (p.includes('zepto')) return `https://www.zeptonow.com/search?q=${encoded}`;
-    if (p.includes('nykaa')) return `https://www.nykaa.com/search/result/?q=${encoded}`;
-    if (p.includes('tata') || p.includes('cliq'))
-      return `https://www.tatacliq.com/search/?searchCategory=all&text=${encoded}`;
-    if (p.includes('croma')) return `https://www.croma.com/searchB?q=${encoded}`;
-    if (p.includes('makemytrip') || p.includes('mmt')) return `https://www.makemytrip.com/`;
-    if (p.includes('lenskart')) return `https://www.lenskart.com/search?q=${encoded}`;
-    if (p.includes('ajio')) return `https://www.ajio.com/search/?text=${encoded}`;
-    if (p.includes('nike')) return `https://www.nike.com/in/w?q=${encoded}`;
-    return `https://www.google.com/search?q=${encodeURIComponent(`${platform} ${title} buy offer`)}`;
   }
 
   private toPublic(doc: DealDocument): PublicDeal {
@@ -901,7 +617,7 @@ Return ONLY a valid raw JSON array without markdown backticks.`;
       tracked: doc.tracked,
       targetPrice:
         doc.targetPriceMinor !== undefined ? toMajorUnits(doc.targetPriceMinor) : undefined,
-      dealUrl: doc.dealUrl || this.getPlatformSearchUrl(doc.platform, doc.title),
+      dealUrl: doc.dealUrl || getPlatformSearchUrl(doc.platform, doc.title),
       sourceUrl: doc.sourceUrl,
       sourceType: doc.sourceType,
       verifiedAt: doc.verifiedAt ? doc.verifiedAt.toISOString() : undefined,

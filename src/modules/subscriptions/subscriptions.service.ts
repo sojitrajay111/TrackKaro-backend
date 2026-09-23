@@ -115,7 +115,9 @@ export class SubscriptionsService {
       }
     }
 
-    return docs.map((doc) => this.toPublic(doc, { isRedundant: redundantIds.has(doc._id.toString()) }));
+    return docs.map((doc) =>
+      this.toPublic(doc, { isRedundant: redundantIds.has(doc._id.toString()) }),
+    );
   }
 
   private toPublic(

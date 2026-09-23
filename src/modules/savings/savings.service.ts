@@ -94,7 +94,10 @@ export class SavingsService {
   private sumCouponSavings(deals: TrackedDeal[]): number {
     return deals
       .filter((d) => d.couponCode)
-      .reduce((acc, d) => acc + Math.round((toMajorUnits(d.currentPriceMinor) * d.discountPercent) / 100), 0);
+      .reduce(
+        (acc, d) => acc + Math.round((toMajorUnits(d.currentPriceMinor) * d.discountPercent) / 100),
+        0,
+      );
   }
 
   private sumCashback(deals: TrackedDeal[]): number {
@@ -107,7 +110,11 @@ export class SavingsService {
   }
 
   private sumDealsInMonth(deals: TrackedDeal[], year: number, month: number): number {
-    const inMonth = deals.filter((d) => d.createdAt.getFullYear() === year && d.createdAt.getMonth() === month);
-    return this.sumDealSavings(inMonth) + this.sumCouponSavings(inMonth) + this.sumCashback(inMonth);
+    const inMonth = deals.filter(
+      (d) => d.createdAt.getFullYear() === year && d.createdAt.getMonth() === month,
+    );
+    return (
+      this.sumDealSavings(inMonth) + this.sumCouponSavings(inMonth) + this.sumCashback(inMonth)
+    );
   }
 }

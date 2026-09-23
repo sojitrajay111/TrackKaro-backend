@@ -1,4 +1,13 @@
-import { IsIn, IsISO8601, IsNumber, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
+import {
+  IsIn,
+  IsISO8601,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  MinLength,
+} from 'class-validator';
 
 import { CATEGORY_NAMES, CategoryName } from '@/common/constants/categories';
 import { REMINDER_FREQUENCIES, ReminderFrequency } from '../schemas/bill-reminder.schema';

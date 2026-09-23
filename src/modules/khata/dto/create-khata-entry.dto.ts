@@ -1,5 +1,14 @@
 import { Transform } from 'class-transformer';
-import { IsIn, IsISO8601, IsNumber, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
+import {
+  IsIn,
+  IsISO8601,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  MinLength,
+} from 'class-validator';
 
 import { KHATA_STATUSES, KHATA_TYPES, KhataStatus, KhataType } from '../schemas/khata-entry.schema';
 

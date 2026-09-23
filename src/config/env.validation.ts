@@ -1,5 +1,5 @@
 import { Type, plainToInstance } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, Min, validateSync } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, Min, validateSync } from 'class-validator';
 
 class EnvironmentVariables {
   @Type(() => Number)
@@ -41,6 +41,18 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   EMAIL_PASSCODE?: string;
+
+  @IsOptional()
+  @IsIn(['provider', 'legacy'])
+  DEALS_ENGINE_MODE?: string;
+
+  @IsOptional()
+  @IsString()
+  FLIPKART_AFFILIATE_ID?: string;
+
+  @IsOptional()
+  @IsString()
+  FLIPKART_AFFILIATE_TOKEN?: string;
 }
 
 /** Validates process.env at bootstrap so a misconfigured deploy fails fast instead of at first request. */
