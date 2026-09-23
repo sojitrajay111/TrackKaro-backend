@@ -45,6 +45,26 @@ const CATEGORY_IMAGES: Record<string, string> = {
     'https://images.unsplash.com/photo-1556742049-0a67c5574f73?auto=format&fit=crop&w=600&q=80',
 };
 
+function getDealImage(category: string, title = ''): string {
+  const lower = title.toLowerCase();
+  if (lower.includes('mouse')) {
+    return 'https://images.unsplash.com/photo-1615663245857-ac93bb7c39e7?auto=format&fit=crop&w=600&q=80';
+  }
+  if (lower.includes('vivobook') || lower.includes('laptop') || lower.includes('macbook')) {
+    return 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=600&q=80';
+  }
+  if (lower.includes('watch') || lower.includes('noise')) {
+    return 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=600&q=80';
+  }
+  if (lower.includes('headphone') || lower.includes('earbud') || lower.includes('tws')) {
+    return 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80';
+  }
+  if (lower.includes('organic') || lower.includes('mandya') || lower.includes('grocery')) {
+    return 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80';
+  }
+  return CATEGORY_IMAGES[category] ?? CATEGORY_IMAGES.Shopping;
+}
+
 /**
  * Cuelinks affiliate aggregator provider — monetizes deals across Flipkart, Amazon India,
  * Myntra, Ajio, Croma, Swiggy, Nykaa, and 1,000+ Indian e-commerce merchants under a single
@@ -243,7 +263,7 @@ export class CuelinksDealsProvider implements DealsProvider {
       savingsAmount,
       expiryDate: offer.end_date || undefined,
       rating: 4.5,
-      imageUrl: CATEGORY_IMAGES[category] ?? CATEGORY_IMAGES.Shopping,
+      imageUrl: getDealImage(category, offer.title),
       dealUrl: offer.tracking_url,
       priceVerified: true,
       urlVerified: true,
