@@ -108,9 +108,27 @@ export class AmazonDealsProvider implements DealsProvider {
         rawProducts.map(async (p) => this.mapProductToDeal(p, context)),
       );
 
+      // Sort exact keyword matches to the top (e.g. iPhone 16 above competitor ads)
+      const qTerms = query
+        .toLowerCase()
+        .replace(/([a-zA-Z]+)(\d+)/g, '$1 $2')
+        .split(/\s+/)
+        .filter((w) => w.length >= 2);
+
+      const validDeals = deals.filter((d) => d.currentPrice > 0);
+      if (qTerms.length > 0) {
+        validDeals.sort((a, b) => {
+          const aTitle = a.title.toLowerCase();
+          const bTitle = b.title.toLowerCase();
+          const aMatches = qTerms.reduce((acc, t) => acc + (aTitle.includes(t) ? 1 : 0), 0);
+          const bMatches = qTerms.reduce((acc, t) => acc + (bTitle.includes(t) ? 1 : 0), 0);
+          return bMatches - aMatches;
+        });
+      }
+
       return {
         status: 'ok',
-        deals: deals.filter((d) => d.currentPrice > 0),
+        deals: validDeals,
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

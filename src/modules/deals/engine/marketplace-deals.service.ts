@@ -134,7 +134,14 @@ export class MarketplaceDealsService {
         const result = await provider.search({ userId, query, profile: EMPTY_PROFILE });
         if (result.status === 'ok' && result.deals.length > 0) {
           const offers = await this.dealIngestionService.ingest(provider.id, result.deals);
-          await this.dealCacheService.logSearch(provider.id, query, 'success', offers.length);
+          await this.dealCacheService.logSearch(
+            provider.id,
+            query,
+            'success',
+            offers.length,
+            undefined,
+            offers.map((o) => o._id),
+          );
 
           if (userId && Types.ObjectId.isValid(userId)) {
             try {

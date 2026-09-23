@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
 
 export const DEAL_SEARCH_STATUSES = ['success', 'unavailable', 'error'] as const;
 export type DealSearchStatus = (typeof DEAL_SEARCH_STATUSES)[number];
@@ -29,6 +29,9 @@ export class DealSearchLog {
 
   @Prop()
   message?: string;
+
+  @Prop({ type: [{ type: MongooseSchema.Types.ObjectId, ref: 'MerchantOffer' }], default: [] })
+  offerIds?: Types.ObjectId[];
 
   @Prop({ required: true, index: true })
   observedAt!: Date;
