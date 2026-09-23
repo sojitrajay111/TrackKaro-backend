@@ -54,9 +54,8 @@ export class MerchantOffer {
   @Prop({ required: true })
   dealUrl!: string;
 
-  /** Resolved by a provider-specific affiliate-link generator. Left unset until that provider's
-   * real affiliate program is implemented against verified documentation — see
-   * `providers/flipkart.provider.ts`. Never synthesized/guessed. */
+  /** Resolved by a provider-specific affiliate-link generator (e.g. Cuelinks). Left unset until
+   * resolved or generated dynamically — see `providers/cuelinks.provider.ts`. */
   @Prop()
   affiliateUrl?: string;
 
@@ -86,5 +85,7 @@ export class MerchantOffer {
 }
 
 export const MerchantOfferSchema = SchemaFactory.createForClass(MerchantOffer);
-// Idempotent upsert key when the provider gives us its own listing id.
-MerchantOfferSchema.index({ providerId: 1, providerProductId: 1 }, { unique: true, sparse: true });
+MerchantOfferSchema.index(
+  { providerId: 1, providerProductId: 1 },
+  { unique: true, partialFilterExpression: { providerProductId: { $type: 'string' } } },
+);

@@ -15,7 +15,7 @@ The official backend API service for **TrackKaro**, a personal finance, digital 
 - **🎯 Category Spending Budgets:** Monthly budget limits per category with automatic 80% and 100% threshold alerting.
 - **⏰ Smart Bill & EMI Reminders:** Scheduled reminder tracking with due dates and payment status.
 - **📱 Recurring Subscriptions & Redundancy Audit:** Tracks recurring annual and monthly commitments, calculates amortized monthly costs, and flags duplicate services.
-- **🛍️ Deals & Affiliate Engine:** A provider-abstracted, provider-neutral deal-discovery system — `GET /deals/search` tries real marketplace providers (Flipkart is the first, currently a credential-gated stub pending API approval) in the default `provider` engine mode, and never fabricates a product, price, or link. Real offers are deduplicated into a canonical `Product`/`MerchantOffer` catalog with an append-only `PriceHistory` (so "is this actually a low price?" is answerable from real data), a freshness/caching layer that avoids re-hitting a provider for an identical search, price-drop alerts (`DealAlert`), and affiliate click-through tracking (`DealClick`, with `isAffiliateResolved: false` until a provider's real affiliate-link resolver exists). The pre-existing Gemini-generated deal finder is preserved as an explicit `legacy` engine mode for side-by-side comparison during the Flipkart rollout (`DEALS_ENGINE_MODE=legacy`, or per-request `?engine=legacy`), and never touches the new catalog tables — see `src/modules/deals/providers/` and `src/modules/deals/engine/`.
+- **🛍️ Deals & Affiliate Engine:** A provider-abstracted, provider-neutral deal-discovery system — `GET /deals/search` tries real marketplace providers (Cuelinks is the aggregator provider) in the default `provider` engine mode, and never fabricates a product, price, or link. Real offers are deduplicated into a canonical `Product`/`MerchantOffer` catalog with an append-only `PriceHistory` (so "is this actually a low price?" is answerable from real data), a freshness/caching layer that avoids re-hitting a provider for an identical search, price-drop alerts (`DealAlert`), and affiliate click-through tracking (`DealClick`, with dynamic Cuelinks affiliate link resolution). The pre-existing Gemini-generated deal finder is preserved as an explicit `legacy` engine mode for side-by-side comparison (`DEALS_ENGINE_MODE=legacy`, or per-request `?engine=legacy`), and never touches the new catalog tables — see `src/modules/deals/providers/` and `src/modules/deals/engine/`.
 - **💰 Dynamic Savings Hub:** Computes genuine capital preserved from tracked deals, coupons, cashbacks, and eliminated subscriptions.
 - **🤖 Google Gemini 1.5 Flash AI Service:**
   - **Financial Copilot (`POST /assistant/messages`):** Ingests live user financial summaries and answers queries using Gemini 1.5 Flash with prompts tailored for India (INR ₹, UPI, EMIs).
@@ -28,65 +28,35 @@ The official backend API service for **TrackKaro**, a personal finance, digital 
 ## 🛠️ Technology Stack
 
 | Layer | Technology | Purpose |
-| :--- | :--- | :--- |
-| **Framework** | NestJS 10 | Scalable, modular enterprise backend framework |
-| **Language** | TypeScript (Strict Mode) | End-to-end type safety |
-| **Database** | MongoDB Atlas via Mongoose 8 | Document storage with schemas and indexing |
-| **Authentication** | Passport.js + `@nestjs/jwt` + bcrypt | Stateless JWT access & refresh authentication |
-| **AI Integration** | Google Gemini 1.5 Flash (REST API) | Conversational financial copilot, receipt OCR & deal search |
-| **Validation** | `class-validator` + `class-transformer` | Strict runtime DTO and environment validation |
-| **Security** | Helmet + `@nestjs/throttler` | HTTP header security and rate limiting |
-| **Testing** | Jest + `mongodb-memory-server` + Supertest | Unit and E2E integration testing |
+|---|---|---|
+| **Runtime & Framework** | Node.js (v18+) · NestJS 10 · TypeScript | Modular, enterprise-grade architecture |
+| **Database & ODM** | MongoDB Atlas · Mongoose 8 | Multi-model persistence (transactions, groups, budgets, deals) |
+| **Authentication** | Passport · JWT (Access + Refresh) · bcrypt | Secure, stateless authentication with session control |
+| **AI & Automation** | Google Gemini 1.5 Flash (`@google/genai`) | Conversational copilot, document OCR, natural language parser |
+| **Affiliate & Monetization** | Cuelinks API / Linksredirect | Universal Indian merchant affiliate link resolution |
+| **Security & Utilities** | Helmet · Throttler · class-validator | Rate limiting, HTTP header hardening, strict DTO validation |
+| **Mailing** | Nodemailer · Gmail SMTP | Secure 6-digit OTP delivery for password reset |
 
 ---
 
-## 📁 Module Architecture
+## 🚀 Getting Started
 
-```
-TrackKaro-backend/
-├── src/
-│   ├── common/                  # Shared decorators, guards, filters, money utilities
-│   ├── config/                  # Configuration factory and env validation
-│   ├── database/                # MongoDB connection module
-│   ├── modules/
-│   │   ├── auth/                # Login, registration, token refresh
-│   │   ├── users/               # User profile management
-│   │   ├── account/             # Full account data wipe (GDPR-style erasure)
-│   │   ├── transactions/        # Expenses, income, category metrics
-│   │   ├── khata/               # Digital Bahi Khata ledgers & customers
-│   │   ├── groups/              # Shared expense groups & debt simplification
-│   │   ├── budgets/             # Category budget limits & threshold alerts
-│   │   ├── reminders/           # Bill & EMI due date tracking
-│   │   ├── subscriptions/       # Recurring costs & redundancy flags
-│   │   ├── deals/               # Shopping offers, price tracking & AI deals search
-│   │   ├── savings/             # Real-time savings analytics
-│   │   ├── assistant/           # Gemini AI financial copilot & receipt OCR
-│   │   ├── notifications/       # In-app notification dispatcher
-│   │   └── health/              # Server health checks
-│   ├── app.module.ts            # Root application module
-│   └── main.ts                  # Application bootstrap entry point
-├── .env.example                 # Environment variable template
-├── package.json
-└── tsconfig.json
+### 1. Environment Configuration
+
+Copy the example environment file and populate your credentials:
+
+```bash
+cp .env.example .env
 ```
 
----
-
-## ⚙️ Environment Configuration
-
-Create a `.env` file in the root of `TrackKaro-backend/` based on `.env.example`:
+Key environment variables:
 
 ```env
 PORT=4000
-MONGO_URI=mongodb+srv://<username>:<password>@cluster0.example.mongodb.net/trackkaro?retryWrites=true&w=majority
-
-JWT_ACCESS_SECRET=your-secure-access-secret-key-min-32-chars
-JWT_ACCESS_TTL=15m
-
-JWT_REFRESH_SECRET=your-secure-refresh-secret-key-min-32-chars
-JWT_REFRESH_TTL=30d
-
-CORS_ORIGINS=http://localhost:8081,http://localhost:8082,http://localhost:19006,https://*.vercel.app
+MONGO_URI=mongodb+srv://<username>:<password>@cluster0.example.mongodb.net/?appName=Cluster0
+JWT_ACCESS_SECRET=your-access-secret-32-chars-minimum
+JWT_REFRESH_SECRET=your-refresh-secret-32-chars-minimum
+CORS_ORIGINS=http://localhost:8081,https://your-domain.com
 
 # Google Gemini AI API Key (Optional — enables Gemini 1.5 Flash features)
 GEMINI_API_KEY=AIzaSy...your_gemini_key_here
@@ -96,15 +66,13 @@ EMAIL_USER=youraccount@gmail.com
 EMAIL_PASSCODE=your-16-char-gmail-app-password
 
 # Deals engine mode — "provider" (default) is the production target: real marketplace providers
-# only (Flipkart, once credentialed below), no AI-generated deals. "legacy" restores the old
+# only (Cuelinks), no AI-generated deals. "legacy" restores the old
 # Gemini deal finder for comparison. Can also be overridden per-request: GET /deals/search?engine=legacy
 DEALS_ENGINE_MODE=provider
 
-# Flipkart Affiliate API credentials (Optional — the provider stays a stub, making no network
-# calls, until both are set AND the real API call is implemented in
-# src/modules/deals/providers/flipkart.provider.ts)
-FLIPKART_AFFILIATE_ID=
-FLIPKART_AFFILIATE_TOKEN=
+# Cuelinks Publisher / Affiliate API credentials (Optional — sign up at cuelinks.com)
+CUELINKS_API_KEY=
+CUELINKS_CHANNEL_ID=
 ```
 
 > **Note:** If `GEMINI_API_KEY` is not provided, the server will start normally and seamlessly use rule-based fallback responses for the assistant and receipt scanner.
@@ -113,68 +81,40 @@ FLIPKART_AFFILIATE_TOKEN=
 
 ---
 
-## 🚀 Getting Started
+## 📡 API Reference
 
-### 1. Install Dependencies
-```bash
-npm install
-```
-
-### 2. Start in Development Mode
-```bash
-npm run start:dev
-```
-The server will start on `http://localhost:4000` with hot-reload enabled.
-
-### 3. Build for Production
-```bash
-npm run build
-npm run start:prod
-```
-
-### 4. Run Tests
-```bash
-# Unit tests
-npm test
-
-# E2E integration tests
-npm run test:e2e
-```
-
----
-
-## 📡 Key API Endpoints
+A summarized listing of available endpoints. All routes (except `/auth/*` and `/health`) require a valid Bearer JWT:
 
 | Method | Endpoint | Description |
-| :--- | :--- | :--- |
+|---|---|---|
 | `POST` | `/auth/register` | Register new user account |
-| `POST` | `/auth/login` | Log in and receive access + refresh tokens |
-| `POST` | `/auth/refresh` | Rotate access token using valid refresh token |
-| `POST` | `/auth/logout` | Revoke a single refresh token |
-| `POST` | `/auth/logout-all` | Revoke all active refresh tokens for the authenticated user |
-| `POST` | `/auth/forgot-password` | Email a 6-digit OTP via Gmail SMTP to reset a forgotten password |
-| `POST` | `/auth/reset-password` | Verify OTP and set a new password (revokes all active sessions) |
-| `GET` | `/users/me` | Fetch currently authenticated user profile |
-| `PATCH` | `/users/me` | Update user profile (`name`, `phone`) |
-| `DELETE` | `/account/data` | Permanently wipe all data owned by the authenticated user (GDPR erasure) |
-| `GET` | `/transactions` | List all user transactions (filtered by category, date) |
-| `POST` | `/transactions` | Create a new transaction (with `@Max(100_000_000)` amount validation) |
-| `GET` | `/khata` | Fetch customer ledgers and balances |
-| `POST` | `/khata` | Record a debit or credit khata entry |
-| `GET` | `/groups` | List user's shared expense groups |
-| `GET` | `/groups/pending-confirmations` | List every unconfirmed group-expense split across all of the user's groups |
-| `POST` | `/groups/:id/expenses` | Add group expense and recalculate debt simplification |
-| `POST` | `/groups/:id/expenses/:expenseId/confirm` | Confirm a pending split, creating a personal transaction in the chosen category |
-| `GET` | `/budgets` | Get monthly category budgets and progress |
-| `PUT` | `/budgets/:category` | Upsert monthly budget limit for a category |
+| `POST` | `/auth/login` | Authenticate user & issue token pair |
+| `POST` | `/auth/refresh` | Rotate refresh token & issue new access token |
+| `POST` | `/auth/forgot-password` | Request 6-digit password reset OTP via email |
+| `POST` | `/auth/reset-password` | Reset password using verified OTP |
+| `POST` | `/auth/logout` | Revoke current refresh token |
+| `POST` | `/auth/logout-all` | Revoke all active sessions for current user |
+| `GET` | `/transactions` | List user transactions with category, date & type filters |
+| `POST` | `/transactions` | Create income/expense transaction |
+| `GET` | `/transactions/stats/today` | Fetch today's total spend and day-over-day change |
+| `GET` | `/transactions/stats/categories` | Fetch category-wise spend breakdown for current month |
+| `GET` | `/khata` | List consolidated ledger accounts by contact |
+| `POST` | `/khata` | Record credit ("You Gave") or debit ("You Got") ledger entry |
+| `GET` | `/khata/stats` | Compute net receivables ("You'll Get") and payables ("You'll Give") |
+| `GET` | `/groups` | List expense groups user is a member of |
+| `POST` | `/groups` | Create an expense group with category |
+| `GET` | `/groups/pending-confirmations` | Walk all user groups and fetch unconfirmed personal expense splits |
+| `POST` | `/groups/:id/confirm-split` | Confirm a shared split into a real personal transaction |
+| `GET` | `/budgets` | Fetch monthly category budgets with live spend tracking |
+| `PUT` | `/budgets` | Upsert budget limit for a category |
 | `GET` | `/reminders` | Fetch pending and paid bill reminders |
 | `GET` | `/reminders/stats` | Fetch live on-time payment rate percentage |
 | `GET` | `/subscriptions` | List recurring subscriptions and redundant services |
 | `GET` | `/subscriptions/stats` | Calculate amortized monthly subscription costs and MoM change % |
 | `GET` | `/deals` | Retrieve promotional deals and price targets (legacy `Deal` collection) |
-| `GET` | `/deals/search?q=:query&engine=` | **Deal discovery:** tries real providers (Flipkart) by default, returning `{status, engine, deals}`; `engine=legacy` opts into the old Gemini-generated search for comparison |
+| `GET` | `/deals/search?q=:query&engine=` | **Deal discovery:** tries real providers (Cuelinks) by default, returning `{status, engine, deals}`; `engine=legacy` opts into the old Gemini-generated search for comparison |
 | `PATCH` | `/deals/offers/:offerId/alert` | Create/update/disable a price-drop alert on a provider-mode merchant offer |
-| `POST` | `/deals/offers/:offerId/click` | Record a click-through and resolve where to redirect (affiliate link once implemented, else the plain deal URL) |
+| `POST` | `/deals/offers/:offerId/click` | Record a click-through and resolve where to redirect (dynamic Cuelinks affiliate link, else the plain deal URL) |
 | `GET` | `/savings` | Retrieve real aggregate savings metrics |
 | `GET` | `/savings/metrics` | Retrieve 5-month historical trend, MoM growth %, and computed saver tier |
 | `POST` | `/assistant/messages` | **Gemini AI Copilot:** Ask financial advice |

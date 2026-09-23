@@ -48,11 +48,11 @@ class EnvironmentVariables {
 
   @IsOptional()
   @IsString()
-  FLIPKART_AFFILIATE_ID?: string;
+  CUELINKS_API_KEY?: string;
 
   @IsOptional()
   @IsString()
-  FLIPKART_AFFILIATE_TOKEN?: string;
+  CUELINKS_CHANNEL_ID?: string;
 }
 
 /** Validates process.env at bootstrap so a misconfigured deploy fails fast instead of at first request. */

@@ -16,13 +16,13 @@ export interface AppConfig {
   };
   deals: {
     /** 'provider' (default, production target) tries real marketplace providers only, e.g.
-     * Flipkart. 'legacy' uses the old Gemini-generated deal finder, kept for comparison during
-     * the Flipkart rollout. See deals.service.ts#discoverDeals. */
+     * Cuelinks. 'legacy' uses the old Gemini-generated deal finder, kept for comparison during
+     * the rollout. See deals.service.ts#discoverDeals. */
     engineMode: 'provider' | 'legacy';
   };
-  flipkart: {
-    affiliateId: string;
-    affiliateToken: string;
+  cuelinks: {
+    apiKey: string;
+    channelId: string;
   };
 }
 
@@ -48,8 +48,8 @@ export default (): AppConfig => ({
   deals: {
     engineMode: process.env.DEALS_ENGINE_MODE === 'legacy' ? 'legacy' : 'provider',
   },
-  flipkart: {
-    affiliateId: process.env.FLIPKART_AFFILIATE_ID ?? '',
-    affiliateToken: process.env.FLIPKART_AFFILIATE_TOKEN ?? '',
+  cuelinks: {
+    apiKey: process.env.CUELINKS_API_KEY ?? '',
+    channelId: process.env.CUELINKS_CHANNEL_ID ?? '',
   },
 });

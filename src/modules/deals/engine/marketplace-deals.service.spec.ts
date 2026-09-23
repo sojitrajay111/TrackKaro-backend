@@ -6,6 +6,7 @@ import { Model, Types } from 'mongoose';
 
 import { DealsService } from '../deals.service';
 import { DealsProvider, ProviderDealResult } from '../providers/deals-provider.interface';
+import { CuelinksDealsProvider } from '../providers/cuelinks.provider';
 import { DEALS_PROVIDERS, DealsProviderRegistry } from '../providers/deals-provider.registry';
 import { DealAlert, DealAlertDocument, DealAlertSchema } from '../schemas/deal-alert.schema';
 import { DealClick, DealClickDocument, DealClickSchema } from '../schemas/deal-click.schema';
@@ -48,6 +49,7 @@ describe('MarketplaceDealsService', () => {
   let service: MarketplaceDealsService;
   let searchMock: jest.Mock;
   let discoverDealsMock: jest.Mock;
+  let cuelinksResolveMock: jest.Mock;
   let offerModel: Model<MerchantOfferDocument>;
   let dealAlertModel: Model<DealAlertDocument>;
   let dealClickModel: Model<DealClickDocument>;
@@ -69,6 +71,12 @@ describe('MarketplaceDealsService', () => {
       discoverDeals: discoverDealsMock,
     } as unknown as DealsService;
 
+    cuelinksResolveMock = jest.fn().mockResolvedValue(null);
+    const cuelinksProviderStub = {
+      isConfigured: () => false,
+      resolveAffiliateUrl: cuelinksResolveMock,
+    } as unknown as CuelinksDealsProvider;
+
     moduleRef = await Test.createTestingModule({
       imports: [
         MongooseModule.forRoot(mongod.getUri()),
@@ -89,6 +97,7 @@ describe('MarketplaceDealsService', () => {
         DealsProviderRegistry,
         { provide: DEALS_PROVIDERS, useValue: [fakeProvider] },
         { provide: DealsService, useValue: dealsServiceStub },
+        { provide: CuelinksDealsProvider, useValue: cuelinksProviderStub },
       ],
     }).compile();
 
@@ -230,6 +239,42 @@ describe('MarketplaceDealsService', () => {
     const storedClick = await dealClickModel.findOne({ merchantOfferId: offer._id }).exec();
     expect(storedClick).not.toBeNull();
     expect(storedClick?.destinationUrl).toBe('https://fakemart.example/alertable');
+  });
+
+  it('recordClick resolves an authentic affiliate link when Cuelinks is configured', async () => {
+    const cuelinksProvider = moduleRef.get(CuelinksDealsProvider);
+    jest.spyOn(cuelinksProvider, 'isConfigured').mockReturnValue(true);
+    cuelinksResolveMock.mockResolvedValueOnce(
+      'https://linksredirect.com/?cid=12345&subid=' +
+        USER_ID +
+        '&url=https%3A%2F%2Ffakemart.example%2Faffiliate',
+    );
+
+    const offer = await offerModel.create({
+      productId: new Types.ObjectId(),
+      providerId: 'fake-marketplace',
+      providerProductId: 'prod-aff-1',
+      title: 'Affiliate Product',
+      platform: 'FakeMart',
+      originalPriceMinor: 2000_00,
+      currentPriceMinor: 1500_00,
+      deliveryChargeMinor: 0,
+      finalPriceMinor: 1500_00,
+      dealUrl: 'https://fakemart.example/affiliate',
+      observedAt: new Date(),
+    });
+
+    const click = await service.recordClick(USER_ID, offer._id.toString());
+    expect(click.redirectUrl).toBe(
+      'https://linksredirect.com/?cid=12345&subid=' +
+        USER_ID +
+        '&url=https%3A%2F%2Ffakemart.example%2Faffiliate',
+    );
+    expect(click.isAffiliateResolved).toBe(true);
+
+    const storedClick = await dealClickModel.findOne({ merchantOfferId: offer._id }).exec();
+    expect(storedClick?.isAffiliateResolved).toBe(true);
+    expect(storedClick?.destinationUrl).toContain('linksredirect.com');
   });
 
   it('setAlert throws NotFoundException for a nonexistent offer id', async () => {

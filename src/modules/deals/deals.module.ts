@@ -12,7 +12,7 @@ import { DealEngineService } from './engine/deal-engine.service';
 import { DealIngestionService } from './engine/deal-ingestion.service';
 import { MarketplaceDealsService } from './engine/marketplace-deals.service';
 import { DEALS_PROVIDERS, DealsProviderRegistry } from './providers/deals-provider.registry';
-import { FlipkartDealsProvider } from './providers/flipkart.provider';
+import { CuelinksDealsProvider } from './providers/cuelinks.provider';
 import { GeminiLegacyDealsProvider } from './providers/gemini-legacy.provider';
 import { DealAlert, DealAlertSchema } from './schemas/deal-alert.schema';
 import { DealClick, DealClickSchema } from './schemas/deal-click.schema';
@@ -43,7 +43,7 @@ import { Product, ProductSchema } from './schemas/product.schema';
   providers: [
     DealsService,
     DealsProviderRegistry,
-    FlipkartDealsProvider,
+    CuelinksDealsProvider,
     // Legacy Gemini engine — intentionally NOT included in DEALS_PROVIDERS below, since it's a
     // comparison/rollout fallback (see deals.service.ts#discoverDeals), not a "real data"
     // provider that the production path should ever try automatically.
@@ -53,8 +53,8 @@ import { Product, ProductSchema } from './schemas/product.schema';
       // implementing DealsProvider, adding it to the `providers` array above, and appending it
       // here — nothing else in the module (or in DealsService/MarketplaceDealsService) needs to change.
       provide: DEALS_PROVIDERS,
-      useFactory: (flipkart: FlipkartDealsProvider) => [flipkart],
-      inject: [FlipkartDealsProvider],
+      useFactory: (cuelinks: CuelinksDealsProvider) => [cuelinks],
+      inject: [CuelinksDealsProvider],
     },
     // Provider-neutral deal engine (Phases 1-7 of the Deals & Affiliate Engine spec).
     DealIngestionService,

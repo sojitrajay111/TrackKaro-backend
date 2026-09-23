@@ -4,6 +4,7 @@ import { Model, Types } from 'mongoose';
 
 import { toMajorUnits, toMinorUnits } from '@/common/money/money.util';
 import { DealsService } from '../deals.service';
+import { CuelinksDealsProvider } from '../providers/cuelinks.provider';
 import { DealsProviderRegistry } from '../providers/deals-provider.registry';
 import { DealAlert, DealAlertDocument } from '../schemas/deal-alert.schema';
 import { DealClick, DealClickDocument } from '../schemas/deal-click.schema';
@@ -46,6 +47,7 @@ export class MarketplaceDealsService {
     @InjectModel(DealAlert.name) private readonly dealAlertModel: Model<DealAlertDocument>,
     @InjectModel(DealClick.name) private readonly dealClickModel: Model<DealClickDocument>,
     private readonly dealsService: DealsService,
+    private readonly cuelinksProvider: CuelinksDealsProvider,
     private readonly dealsProviderRegistry: DealsProviderRegistry,
     private readonly dealIngestionService: DealIngestionService,
     private readonly dealEngineService: DealEngineService,
@@ -261,10 +263,17 @@ export class MarketplaceDealsService {
     const offer = await this.offerModel.findById(offerId).exec();
     if (!offer) throw new NotFoundException('Offer not found');
 
-    // Never synthesized here — `affiliateUrl` is only ever set by a real, verified provider
-    // affiliate-link resolver (none exists yet for Flipkart; see providers/flipkart.provider.ts).
-    const destinationUrl = offer.affiliateUrl || offer.dealUrl;
-    const isAffiliateResolved = Boolean(offer.affiliateUrl);
+    let destinationUrl = offer.affiliateUrl || offer.dealUrl;
+    let isAffiliateResolved = Boolean(offer.affiliateUrl);
+
+    // If no static affiliate URL exists on the offer, resolve it via Cuelinks
+    if (!isAffiliateResolved && this.cuelinksProvider.isConfigured()) {
+      const resolved = await this.cuelinksProvider.resolveAffiliateUrl(offer.dealUrl, userId);
+      if (resolved) {
+        destinationUrl = resolved;
+        isAffiliateResolved = true;
+      }
+    }
 
     await this.dealClickModel.create({
       userId: new Types.ObjectId(userId),

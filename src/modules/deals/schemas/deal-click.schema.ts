@@ -6,8 +6,8 @@ export type DealClickDocument = HydratedDocument<DealClick>;
 /**
  * Append-only record of a user clicking through to a merchant offer. Records whatever
  * `destinationUrl` was actually used to redirect the user — `isAffiliateResolved` distinguishes
- * a real resolved affiliate link from a plain fallback to the offer's own `dealUrl` (true for
- * every provider today, since no affiliate-link resolver is implemented yet).
+ * a real resolved affiliate link (e.g. via Cuelinks) from a plain fallback to the offer's own
+ * `dealUrl`.
  */
 @Schema({ timestamps: true })
 export class DealClick {
