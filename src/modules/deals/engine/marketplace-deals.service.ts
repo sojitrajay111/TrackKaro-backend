@@ -55,7 +55,7 @@ export class MarketplaceDealsService {
   ) {}
 
   async searchDeals(
-    userId: string,
+    userId?: string,
     query?: string,
     engineOverride?: DealsEngineMode,
   ): Promise<DealSearchResponse> {
@@ -67,7 +67,15 @@ export class MarketplaceDealsService {
     return this.searchProviders(userId, query);
   }
 
-  private async searchLegacy(userId: string, query?: string): Promise<DealSearchResponse> {
+  private async searchLegacy(userId?: string, query?: string): Promise<DealSearchResponse> {
+    if (!userId) {
+      return {
+        status: 'unavailable',
+        engine: 'legacy',
+        message: 'The legacy Gemini engine requires user authentication to personalize deals.',
+        deals: [],
+      };
+    }
     const legacyDeals = await this.dealsService.discoverDeals(userId, query, 'legacy');
     return {
       status: legacyDeals.length > 0 ? 'success' : 'unavailable',
@@ -109,7 +117,7 @@ export class MarketplaceDealsService {
     };
   }
 
-  private async searchProviders(userId: string, query?: string): Promise<DealSearchResponse> {
+  private async searchProviders(userId?: string, query?: string): Promise<DealSearchResponse> {
     for (const provider of this.dealsProviderRegistry.getProviders()) {
       if (!provider.isConfigured()) continue;
 
@@ -158,7 +166,7 @@ export class MarketplaceDealsService {
 
   private async toPublicMerchantDeals(
     offers: MerchantOfferDocument[],
-    userId: string,
+    userId?: string,
   ): Promise<PublicMerchantDeal[]> {
     if (offers.length === 0) return [];
 
@@ -166,12 +174,15 @@ export class MarketplaceDealsService {
     const products = await this.productModel.find({ _id: { $in: productIds } }).exec();
     const productById = new Map(products.map((p) => [p._id.toString(), p]));
 
-    const alerts = await this.dealAlertModel
-      .find({
-        userId: new Types.ObjectId(userId),
-        merchantOfferId: { $in: offers.map((o) => o._id) },
-      })
-      .exec();
+    const alerts =
+      userId && Types.ObjectId.isValid(userId)
+        ? await this.dealAlertModel
+            .find({
+              userId: new Types.ObjectId(userId),
+              merchantOfferId: { $in: offers.map((o) => o._id) },
+            })
+            .exec()
+        : [];
     const alertByOfferId = new Map(alerts.map((a) => [a.merchantOfferId.toString(), a]));
 
     const now = new Date();

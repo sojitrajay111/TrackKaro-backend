@@ -52,7 +52,7 @@ export interface DealsSearchResult {
 }
 
 export interface DealsProviderContext {
-  userId: string;
+  userId?: string;
   query?: string;
   profile: UserFinancialProfile;
 }

@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 
 import { CurrentUser, CurrentUserPayload } from '@/common/decorators/current-user.decorator';
+import { Public } from '@/common/decorators/public.decorator';
 import { ParseObjectIdPipe } from '@/common/pipes/parse-object-id.pipe';
 import { DealsService } from './deals.service';
 import { TrackDealDto } from './dto/track-deal.dto';
@@ -35,9 +36,10 @@ export class DealsController {
    * 'provider' engine (real marketplace data only, never AI-generated); pass `?engine=legacy` to
    * opt into the old Gemini-generated comparison engine for this one request.
    */
+  @Public()
   @Get('search')
   searchRealDeals(
-    @CurrentUser() user: CurrentUserPayload,
+    @CurrentUser() user?: CurrentUserPayload,
     @Query('q') query?: string,
     @Query('engine') engine?: string,
   ) {
@@ -48,7 +50,7 @@ export class DealsController {
       }
       engineOverride = engine;
     }
-    return this.marketplaceDealsService.searchDeals(user.userId, query, engineOverride);
+    return this.marketplaceDealsService.searchDeals(user?.userId, query, engineOverride);
   }
 
   /** Create/update/disable a price-drop alert on a specific provider-mode merchant offer
