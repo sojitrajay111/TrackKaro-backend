@@ -41,10 +41,38 @@ export class CuelinksDealsProvider implements DealsProvider {
       return null;
     }
 
-    const { channelId } = this.configService.get('cuelinks', { infer: true }) ?? {
+    const { apiKey, channelId } = this.configService.get('cuelinks', { infer: true }) ?? {
       apiKey: '',
       channelId: '',
     };
+
+    if (apiKey) {
+      try {
+        const response = await fetch('https://developers.cuelinks.com/pub_api/v3/links/convert', {
+          method: 'POST',
+          headers: {
+            Authorization: `Token ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            url: rawUrl,
+            ...(subId ? { subid: subId } : {}),
+          }),
+        });
+
+        if (response.ok) {
+          const data = (await response.json()) as {
+            data?: { affiliate_url?: string; tracking_url?: string };
+          };
+          const converted = data?.data?.affiliate_url || data?.data?.tracking_url;
+          if (converted) return converted;
+        }
+      } catch (err: unknown) {
+        this.logger.warn(
+          `[Cuelinks] API conversion request failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
 
     if (channelId) {
       const subIdParam = subId ? `&subid=${encodeURIComponent(subId)}` : '';
