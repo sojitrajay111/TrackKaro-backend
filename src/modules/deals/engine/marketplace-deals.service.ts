@@ -135,6 +135,22 @@ export class MarketplaceDealsService {
         if (result.status === 'ok' && result.deals.length > 0) {
           const offers = await this.dealIngestionService.ingest(provider.id, result.deals);
           await this.dealCacheService.logSearch(provider.id, query, 'success', offers.length);
+
+          if (userId && Types.ObjectId.isValid(userId)) {
+            try {
+              const profile = await this.dealsService.getUserFinancialProfile(userId);
+              await this.dealsService.rankAndPersistProviderDeals(
+                userId,
+                query,
+                provider.id,
+                result.deals,
+                profile,
+              );
+            } catch (syncErr: unknown) {
+              this.logger.warn(`Could not sync deals to user collection: ${String(syncErr)}`);
+            }
+          }
+
           return {
             status: 'success',
             engine: 'provider',

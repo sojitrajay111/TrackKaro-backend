@@ -523,7 +523,7 @@ export class DealsService {
    * public shape. Nothing in this method invents a product, price or link — it only scores and
    * displays what the provider already gave it.
    */
-  private async rankAndPersistProviderDeals(
+  async rankAndPersistProviderDeals(
     userId: string,
     query: string | undefined,
     providerId: string,
