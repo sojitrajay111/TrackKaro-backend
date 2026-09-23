@@ -72,13 +72,14 @@ export class AmazonDealsProvider implements DealsProvider {
       };
     }
 
-    const query = context.query?.trim();
-    // Leave generic / empty searches to promotional campaign providers (Cuelinks)
+    let query = context.query?.trim();
     if (!query || query.toLowerCase() === 'all') {
-      return {
-        status: 'ok',
-        deals: [],
-      };
+      const topCat = context.profile?.topCategories?.[0]?.category;
+      if (topCat && topCat !== 'Other') {
+        query = `${topCat} deals`;
+      } else {
+        query = 'trending deals';
+      }
     }
 
     const rapidApiKey = this.configService.get('rapidapi', { infer: true })?.key;

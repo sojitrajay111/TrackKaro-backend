@@ -46,24 +46,14 @@ export class DealsService {
 
   async findAll(userId: string): Promise<PublicDeal[]> {
     try {
-      // Automatically migrate any legacy deals pointing to the broken 404 Unsplash image
-      await this.dealModel
-        .updateMany(
-          { imageUrl: { $regex: /photo-1695048065059-866418b76077/ } },
-          {
-            $set: {
-              imageUrl:
-                'https://images.unsplash.com/photo-1695048133142-1a20484d2569?auto=format&fit=crop&w=600&q=80',
-            },
-          },
-        )
-        .exec();
+      // Purge outdated default web_search_grounding dummy deals
+      await this.dealModel.deleteMany({ sourceType: 'web_search_grounding' }).exec();
     } catch {
       // ignore cleanup errors
     }
 
     const docs = await this.dealModel
-      .find({ userId })
+      .find({ userId, sourceType: { $ne: 'web_search_grounding' } })
       .sort({ dealScore: -1, createdAt: -1 })
       .exec();
     if (docs.length === 0) {
@@ -376,9 +366,19 @@ export class DealsService {
       return this.runProvider(this.geminiLegacyProvider, userId, query, profile);
     }
 
+    let effectiveQuery = query?.trim();
+    if (!effectiveQuery || effectiveQuery.toLowerCase() === 'all') {
+      const topCat = profile.topCategories?.[0]?.category;
+      if (topCat && topCat !== 'Other') {
+        effectiveQuery = `${topCat} deals`;
+      } else {
+        effectiveQuery = 'best deals';
+      }
+    }
+
     for (const provider of this.dealsProviderRegistry.getProviders()) {
       if (!provider.isConfigured()) continue;
-      const result = await this.runProvider(provider, userId, query, profile);
+      const result = await this.runProvider(provider, userId, effectiveQuery, profile);
       if (result.length > 0) return result;
     }
 
