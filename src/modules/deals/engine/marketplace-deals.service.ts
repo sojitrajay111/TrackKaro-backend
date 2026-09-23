@@ -143,19 +143,25 @@ export class MarketplaceDealsService {
             offers.map((o) => o._id),
           );
 
-          if (userId && Types.ObjectId.isValid(userId)) {
-            try {
-              const profile = await this.dealsService.getUserFinancialProfile(userId);
-              await this.dealsService.rankAndPersistProviderDeals(
-                userId,
-                query,
-                provider.id,
-                result.deals,
-                profile,
-              );
-            } catch (syncErr: unknown) {
-              this.logger.warn(`Could not sync deals to user collection: ${String(syncErr)}`);
-            }
+          if (
+            userId &&
+            Types.ObjectId.isValid(userId) &&
+            typeof this.dealsService.getUserFinancialProfile === 'function'
+          ) {
+            void this.dealsService
+              .getUserFinancialProfile(userId)
+              .then((profile) =>
+                this.dealsService.rankAndPersistProviderDeals(
+                  userId,
+                  query,
+                  provider.id,
+                  result.deals,
+                  profile,
+                ),
+              )
+              .catch((syncErr: unknown) => {
+                this.logger.warn(`Could not sync deals to user collection: ${String(syncErr)}`);
+              });
           }
 
           return {
@@ -207,25 +213,28 @@ export class MarketplaceDealsService {
             .exec()
         : [];
     const alertByOfferId = new Map(alerts.map((a) => [a.merchantOfferId.toString(), a]));
+    const historyMap = await this.dealEngineService.batchPriceHistoryComparison(
+      offers.map((o) => o._id),
+    );
 
     const now = new Date();
-    return Promise.all(
-      offers.map(async (offer) => {
-        const product = productById.get(offer.productId.toString());
-        const alert = alertByOfferId.get(offer._id.toString());
-        const discountPercent = this.dealEngineService.computeDiscountPercent(
-          offer.originalPriceMinor,
-          offer.finalPriceMinor,
-        );
-        const { lowestObservedMinor, isAllTimeLow } =
-          await this.dealEngineService.priceHistoryComparison(offer._id, offer.finalPriceMinor);
-        const dealScore = this.dealEngineService.computeScore({
-          discountPercent,
-          priceVerified: offer.priceVerified,
-          urlVerified: offer.urlVerified,
-          couponCode: offer.couponCode,
-          rating: offer.rating,
-        });
+    return offers.map((offer) => {
+      const product = productById.get(offer.productId.toString());
+      const alert = alertByOfferId.get(offer._id.toString());
+      const discountPercent = this.dealEngineService.computeDiscountPercent(
+        offer.originalPriceMinor,
+        offer.finalPriceMinor,
+      );
+      const hist = historyMap.get(offer._id.toString());
+      const lowestObservedMinor = hist?.lowestObservedMinor ?? null;
+      const isAllTimeLow = hist ? hist.isAllTimeLow && offer.finalPriceMinor <= (hist.lowestObservedMinor ?? 0) : false;
+      const dealScore = this.dealEngineService.computeScore({
+        discountPercent,
+        priceVerified: offer.priceVerified,
+        urlVerified: offer.urlVerified,
+        couponCode: offer.couponCode,
+        rating: offer.rating,
+      });
 
         return {
           offerId: offer._id.toString(),
@@ -262,8 +271,7 @@ export class MarketplaceDealsService {
               ? toMajorUnits(alert.targetPriceMinor)
               : undefined,
         };
-      }),
-    );
+      });
   }
 
   async setAlert(

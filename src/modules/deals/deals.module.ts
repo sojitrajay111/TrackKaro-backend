@@ -55,11 +55,11 @@ import { Product, ProductSchema } from './schemas/product.schema';
       // implementing DealsProvider, adding it to the `providers` array above, and appending it
       // here — nothing else in the module (or in DealsService/MarketplaceDealsService) needs to change.
       provide: DEALS_PROVIDERS,
-      useFactory: (cuelinks: CuelinksDealsProvider, amazon: AmazonDealsProvider) => [
-        cuelinks,
+      useFactory: (amazon: AmazonDealsProvider, cuelinks: CuelinksDealsProvider) => [
         amazon,
+        cuelinks,
       ],
-      inject: [CuelinksDealsProvider, AmazonDealsProvider],
+      inject: [AmazonDealsProvider, CuelinksDealsProvider],
     },
     // Provider-neutral deal engine (Phases 1-7 of the Deals & Affiliate Engine spec).
     DealIngestionService,

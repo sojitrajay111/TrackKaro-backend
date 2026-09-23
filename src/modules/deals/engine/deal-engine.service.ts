@@ -70,6 +70,40 @@ export class DealEngineService {
     return { lowestObservedMinor: lowest.finalPriceMinor, isAllTimeLow, sampleCount };
   }
 
+  /**
+   * Batch version of priceHistoryComparison: single aggregate query for an entire offer list
+   * avoiding 2 * N queries to MongoDB.
+   */
+  async batchPriceHistoryComparison(
+    offerIds: Types.ObjectId[],
+  ): Promise<Map<string, { lowestObservedMinor: number | null; isAllTimeLow: boolean }>> {
+    const result = new Map<string, { lowestObservedMinor: number | null; isAllTimeLow: boolean }>();
+    if (offerIds.length === 0) return result;
+
+    const stats = await this.priceHistoryModel.aggregate<{
+      _id: Types.ObjectId;
+      lowestMinor: number;
+      count: number;
+    }>([
+      { $match: { merchantOfferId: { $in: offerIds } } },
+      {
+        $group: {
+          _id: '$merchantOfferId',
+          lowestMinor: { $min: '$finalPriceMinor' },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    for (const s of stats) {
+      result.set(s._id.toString(), {
+        lowestObservedMinor: s.lowestMinor,
+        isAllTimeLow: s.count > 1,
+      });
+    }
+    return result;
+  }
+
   /** Cross-merchant comparison for the same canonical product — the cheapest currently-known
    * final price for this product from any OTHER provider's offer for it, so a deal can be
    * compared against its competitors. Returns null until a second provider is actually

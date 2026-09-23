@@ -107,6 +107,12 @@ export class CuelinksDealsProvider implements DealsProvider {
       channelId: '',
     };
 
+    // Fast path: channelId enables immediate 0ms redirect URL generation with zero external HTTP calls
+    if (channelId) {
+      const subIdParam = subId ? `&subid=${encodeURIComponent(subId)}` : '';
+      return `https://linksredirect.com/?cid=${encodeURIComponent(channelId)}${subIdParam}&url=${encodeURIComponent(rawUrl)}`;
+    }
+
     if (apiKey) {
       try {
         const response = await fetch('https://developers.cuelinks.com/pub_api/v3/links/convert', {
@@ -133,11 +139,6 @@ export class CuelinksDealsProvider implements DealsProvider {
           `[Cuelinks] API conversion request failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
-    }
-
-    if (channelId) {
-      const subIdParam = subId ? `&subid=${encodeURIComponent(subId)}` : '';
-      return `https://linksredirect.com/?cid=${encodeURIComponent(channelId)}${subIdParam}&url=${encodeURIComponent(rawUrl)}`;
     }
 
     return null;

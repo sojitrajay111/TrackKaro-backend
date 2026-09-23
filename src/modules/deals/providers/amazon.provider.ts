@@ -103,7 +103,7 @@ export class AmazonDealsProvider implements DealsProvider {
       }
 
       const json = (await response.json()) as RapidApiResponse;
-      const rawProducts = json.data?.products ?? [];
+      const rawProducts = (json.data?.products ?? []).slice(0, 24);
 
       const deals: ProviderDealResult[] = await Promise.all(
         rawProducts.map(async (p) => this.mapProductToDeal(p, context)),

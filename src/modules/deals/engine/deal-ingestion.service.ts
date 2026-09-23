@@ -43,16 +43,18 @@ export class DealIngestionService {
   }
 
   async ingest(providerId: string, deals: ProviderDealResult[]): Promise<MerchantOfferDocument[]> {
-    const offers: MerchantOfferDocument[] = [];
-    for (const d of deals) {
-      try {
-        offers.push(await this.ingestOne(providerId, d));
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        this.logger.warn(`[deals] failed to ingest one offer from "${providerId}": ${message}`);
-      }
-    }
-    return offers;
+    const results = await Promise.all(
+      deals.map(async (d) => {
+        try {
+          return await this.ingestOne(providerId, d);
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          this.logger.warn(`[deals] failed to ingest one offer from "${providerId}": ${message}`);
+          return null;
+        }
+      }),
+    );
+    return results.filter((o): o is MerchantOfferDocument => o !== null);
   }
 
   private async ingestOne(
@@ -108,13 +110,17 @@ export class DealIngestionService {
       )
       .exec();
 
-    await this.priceHistoryModel.create({
-      merchantOfferId: offer._id,
-      productId: product._id,
-      priceMinor: offer.currentPriceMinor,
-      finalPriceMinor: finalMinor,
-      observedAt: now,
-    });
+    void this.priceHistoryModel
+      .create({
+        merchantOfferId: offer._id,
+        productId: product._id,
+        priceMinor: offer.currentPriceMinor,
+        finalPriceMinor: finalMinor,
+        observedAt: now,
+      })
+      .catch((err: unknown) => {
+        this.logger.warn(`Could not log price history: ${String(err)}`);
+      });
 
     return offer;
   }
