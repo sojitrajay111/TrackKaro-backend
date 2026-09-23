@@ -24,6 +24,9 @@ export interface AppConfig {
     apiKey: string;
     channelId: string;
   };
+  rapidapi: {
+    key: string;
+  };
 }
 
 export default (): AppConfig => ({
@@ -51,5 +54,8 @@ export default (): AppConfig => ({
   cuelinks: {
     apiKey: process.env.CUELINKS_API_KEY ?? '',
     channelId: process.env.CUELINKS_CHANNEL_ID ?? '',
+  },
+  rapidapi: {
+    key: process.env.RAPIDAPI_KEY ?? '',
   },
 });

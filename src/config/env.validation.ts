@@ -53,6 +53,10 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   CUELINKS_CHANNEL_ID?: string;
+
+  @IsOptional()
+  @IsString()
+  RAPIDAPI_KEY?: string;
 }
 
 /** Validates process.env at bootstrap so a misconfigured deploy fails fast instead of at first request. */
