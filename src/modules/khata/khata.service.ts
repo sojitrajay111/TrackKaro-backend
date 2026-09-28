@@ -25,8 +25,22 @@ export class KhataService {
     @InjectModel(KhataEntry.name) private readonly khataModel: Model<KhataEntryDocument>,
   ) {}
 
-  async findAll(userId: string): Promise<PublicKhataEntry[]> {
-    const docs = await this.khataModel.find({ userId }).sort({ createdAt: -1 }).exec();
+  async findAll(
+    userId: string,
+    query?: { page?: number; limit?: number; status?: string },
+  ): Promise<PublicKhataEntry[]> {
+    const filter: Record<string, any> = { userId };
+    if (query?.status) filter.status = query.status;
+    const limit = query?.limit ? Math.min(Number(query.limit), 200) : 500;
+    const page = query?.page ? Math.max(Number(query.page), 1) : 1;
+    const skip = (page - 1) * limit;
+
+    const docs = await this.khataModel
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .exec();
     return docs.map((doc) => this.toPublic(doc));
   }
 

@@ -9,6 +9,9 @@ import { SubscriptionsModule } from '@/modules/subscriptions/subscriptions.modul
 import { TransactionsModule } from '@/modules/transactions/transactions.module';
 import { AssistantController } from './assistant.controller';
 import { AssistantService } from './assistant.service';
+import { BillOcrService } from './services/bill-ocr.service';
+import { GeminiOrchestratorService } from './services/gemini-orchestrator.service';
+import { RuleBasedAssistantService } from './services/rule-based-assistant.service';
 
 @Module({
   imports: [
@@ -21,6 +24,17 @@ import { AssistantService } from './assistant.service';
     BudgetsModule,
   ],
   controllers: [AssistantController],
-  providers: [AssistantService],
+  providers: [
+    AssistantService,
+    BillOcrService,
+    RuleBasedAssistantService,
+    GeminiOrchestratorService,
+  ],
+  exports: [
+    AssistantService,
+    BillOcrService,
+    RuleBasedAssistantService,
+    GeminiOrchestratorService,
+  ],
 })
 export class AssistantModule {}

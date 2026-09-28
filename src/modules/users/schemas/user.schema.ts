@@ -16,6 +16,9 @@ export class User {
 
   @Prop({ trim: true })
   phone?: string;
+
+  @Prop({ type: [String], default: [] })
+  pushTokens!: string[];
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

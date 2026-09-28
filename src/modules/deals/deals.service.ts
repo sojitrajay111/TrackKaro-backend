@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -17,8 +17,9 @@ import { Deal, DealDocument } from './schemas/deal.schema';
 import { DealsEngineMode, PublicDeal, UserFinancialProfile } from './types';
 
 @Injectable()
-export class DealsService {
+export class DealsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DealsService.name);
+  private priceCrawlerTimer?: NodeJS.Timeout;
 
   constructor(
     @InjectModel(Deal.name) private readonly dealModel: Model<DealDocument>,
@@ -30,6 +31,43 @@ export class DealsService {
     private readonly dealsProviderRegistry: DealsProviderRegistry,
     private readonly geminiLegacyProvider: GeminiLegacyDealsProvider,
   ) {}
+
+  onModuleInit() {
+    // Initial crawler check 60 seconds after bootstrap, then every 3 hours
+    setTimeout(() => {
+      void this.checkTrackedDealsForPriceDrops().catch(() => {});
+    }, 60000);
+
+    this.priceCrawlerTimer = setInterval(() => {
+      void this.checkTrackedDealsForPriceDrops().catch(() => {});
+    }, 3 * 60 * 60 * 1000);
+  }
+
+  onModuleDestroy() {
+    if (this.priceCrawlerTimer) {
+      clearInterval(this.priceCrawlerTimer);
+    }
+  }
+
+  async checkTrackedDealsForPriceDrops(): Promise<{ checked: number; dropsFound: number }> {
+    const trackedDeals = await this.dealModel.find({ tracked: true }).exec();
+    let dropsFound = 0;
+
+    for (const deal of trackedDeals) {
+      if (!deal.targetPriceMinor) continue;
+      if (deal.currentPriceMinor <= deal.targetPriceMinor) {
+        await this.notificationsService.create(deal.userId.toString(), {
+          title: `🔔 Price Drop: ${deal.platform}`,
+          message: `${deal.title} is now available at ${formatINR(toMajorUnits(deal.finalPriceMinor))}! Below your target price of ${formatINR(toMajorUnits(deal.targetPriceMinor))}.`,
+          type: 'price_drop',
+        });
+        dropsFound++;
+      }
+    }
+
+    this.logger.log(`[deals-crawler] Checked ${trackedDeals.length} tracked deals, alerted ${dropsFound} drops`);
+    return { checked: trackedDeals.length, dropsFound };
+  }
 
   async seedDefaultDeals(userId: string): Promise<void> {
     try {

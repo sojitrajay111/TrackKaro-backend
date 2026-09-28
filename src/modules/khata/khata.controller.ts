@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 
 import { CurrentUser, CurrentUserPayload } from '@/common/decorators/current-user.decorator';
@@ -21,8 +22,11 @@ export class KhataController {
   constructor(private readonly khataService: KhataService) {}
 
   @Get()
-  findAll(@CurrentUser() user: CurrentUserPayload) {
-    return this.khataService.findAll(user.userId);
+  findAll(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query() query?: { page?: number; limit?: number; status?: string },
+  ) {
+    return this.khataService.findAll(user.userId, query);
   }
 
   @Post()

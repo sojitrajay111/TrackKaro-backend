@@ -110,17 +110,17 @@ export class DealIngestionService {
       )
       .exec();
 
-    void this.priceHistoryModel
-      .create({
+    try {
+      await this.priceHistoryModel.create({
         merchantOfferId: offer._id,
         productId: product._id,
         priceMinor: offer.currentPriceMinor,
         finalPriceMinor: finalMinor,
         observedAt: now,
-      })
-      .catch((err: unknown) => {
-        this.logger.warn(`Could not log price history: ${String(err)}`);
       });
+    } catch (err: unknown) {
+      this.logger.warn(`Could not log price history: ${String(err)}`);
+    }
 
     return offer;
   }

@@ -93,4 +93,9 @@ export class DealsController {
   ) {
     return this.dealsService.simulateDrop(user.userId, id, dto.targetPrice);
   }
+
+  @Post('check-tracked')
+  checkTracked() {
+    return this.dealsService.checkTrackedDealsForPriceDrops();
+  }
 }
