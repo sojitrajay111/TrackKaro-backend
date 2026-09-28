@@ -30,11 +30,6 @@ import { RuleBasedAssistantService } from './services/rule-based-assistant.servi
     RuleBasedAssistantService,
     GeminiOrchestratorService,
   ],
-  exports: [
-    AssistantService,
-    BillOcrService,
-    RuleBasedAssistantService,
-    GeminiOrchestratorService,
-  ],
+  exports: [AssistantService, BillOcrService, RuleBasedAssistantService, GeminiOrchestratorService],
 })
 export class AssistantModule {}

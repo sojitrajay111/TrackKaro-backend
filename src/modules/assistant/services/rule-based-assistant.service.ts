@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import { CATEGORY_NAMES, CategoryName } from '@/common/constants/categories';
+import { CategoryName } from '@/common/constants/categories';
 import { formatINR } from '@/common/money/money.util';
 import { BudgetsService } from '@/modules/budgets/budgets.service';
 import { DealsService } from '@/modules/deals/deals.service';
@@ -405,9 +405,7 @@ export class RuleBasedAssistantService {
     return `💡 Your highest spending categories are:\n${lines.join('\n')}`;
   }
 
-  async replyReminder(
-    userId: string,
-  ): Promise<Pick<ChatReply, 'text' | 'actionType' | 'payload'>> {
+  async replyReminder(userId: string): Promise<Pick<ChatReply, 'text' | 'actionType' | 'payload'>> {
     const reminders = await this.remindersService.findAll(userId);
     const pending = reminders
       .filter((r) => r.status === 'pending')

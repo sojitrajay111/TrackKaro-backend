@@ -81,18 +81,12 @@ export class DealCacheService {
 
       if (words.length > 0) {
         // Only return cached offers whose title actually matches the search query terms
-        const regexes = words.map(
-          (w) => new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
-        );
+        const regexes = words.map((w) => new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
         filter.$or = regexes.map((r) => ({ title: { $regex: r } }));
       }
     }
 
-    const offers = await this.offerModel
-      .find(filter)
-      .sort({ observedAt: -1 })
-      .limit(50)
-      .exec();
+    const offers = await this.offerModel.find(filter).sort({ observedAt: -1 }).limit(50).exec();
 
     if (words.length > 0 && offers.length > 0) {
       offers.sort((a, b) => {

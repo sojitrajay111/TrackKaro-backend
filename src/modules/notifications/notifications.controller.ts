@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
 
 import { CurrentUser, CurrentUserPayload } from '@/common/decorators/current-user.decorator';
 import { ParseObjectIdPipe } from '@/common/pipes/parse-object-id.pipe';
@@ -15,10 +25,7 @@ export class NotificationsController {
 
   @Post('token')
   @HttpCode(HttpStatus.OK)
-  async registerToken(
-    @CurrentUser() user: CurrentUserPayload,
-    @Body('token') token: string,
-  ) {
+  async registerToken(@CurrentUser() user: CurrentUserPayload, @Body('token') token: string) {
     await this.notificationsService.registerPushToken(user.userId, token);
     return { success: true };
   }

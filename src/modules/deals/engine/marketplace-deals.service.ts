@@ -227,7 +227,9 @@ export class MarketplaceDealsService {
       );
       const hist = historyMap.get(offer._id.toString());
       const lowestObservedMinor = hist?.lowestObservedMinor ?? null;
-      const isAllTimeLow = hist ? hist.isAllTimeLow && offer.finalPriceMinor <= (hist.lowestObservedMinor ?? 0) : false;
+      const isAllTimeLow = hist
+        ? hist.isAllTimeLow && offer.finalPriceMinor <= (hist.lowestObservedMinor ?? 0)
+        : false;
       const dealScore = this.dealEngineService.computeScore({
         discountPercent,
         priceVerified: offer.priceVerified,
@@ -236,42 +238,38 @@ export class MarketplaceDealsService {
         rating: offer.rating,
       });
 
-        return {
-          offerId: offer._id.toString(),
-          productId: offer.productId.toString(),
-          title: offer.title,
-          platform: offer.platform,
-          category: product?.category ?? 'Shopping',
-          brand: product?.brand,
-          originalPrice: toMajorUnits(offer.originalPriceMinor),
-          currentPrice: toMajorUnits(offer.currentPriceMinor),
-          discountPercent,
-          couponCode: offer.couponCode,
-          cashbackText: offer.cashbackText,
-          deliveryCharge: toMajorUnits(offer.deliveryChargeMinor),
-          finalPrice: toMajorUnits(offer.finalPriceMinor),
-          savingsAmount: toMajorUnits(
-            Math.max(0, offer.originalPriceMinor - offer.finalPriceMinor),
-          ),
-          rating: offer.rating,
-          imageUrl: offer.imageUrl,
-          dealUrl: offer.dealUrl,
-          sourceType: offer.providerId,
-          priceVerified: offer.priceVerified ?? false,
-          urlVerified: offer.urlVerified ?? false,
-          observedAt: offer.observedAt.toISOString(),
-          stale: this.dealCacheService.isStale(offer.observedAt, now),
-          isAllTimeLow,
-          lowestObservedPrice:
-            lowestObservedMinor !== null ? toMajorUnits(lowestObservedMinor) : null,
-          dealScore,
-          alerted: Boolean(alert?.enabled),
-          targetPrice:
-            alert?.targetPriceMinor !== undefined
-              ? toMajorUnits(alert.targetPriceMinor)
-              : undefined,
-        };
-      });
+      return {
+        offerId: offer._id.toString(),
+        productId: offer.productId.toString(),
+        title: offer.title,
+        platform: offer.platform,
+        category: product?.category ?? 'Shopping',
+        brand: product?.brand,
+        originalPrice: toMajorUnits(offer.originalPriceMinor),
+        currentPrice: toMajorUnits(offer.currentPriceMinor),
+        discountPercent,
+        couponCode: offer.couponCode,
+        cashbackText: offer.cashbackText,
+        deliveryCharge: toMajorUnits(offer.deliveryChargeMinor),
+        finalPrice: toMajorUnits(offer.finalPriceMinor),
+        savingsAmount: toMajorUnits(Math.max(0, offer.originalPriceMinor - offer.finalPriceMinor)),
+        rating: offer.rating,
+        imageUrl: offer.imageUrl,
+        dealUrl: offer.dealUrl,
+        sourceType: offer.providerId,
+        priceVerified: offer.priceVerified ?? false,
+        urlVerified: offer.urlVerified ?? false,
+        observedAt: offer.observedAt.toISOString(),
+        stale: this.dealCacheService.isStale(offer.observedAt, now),
+        isAllTimeLow,
+        lowestObservedPrice:
+          lowestObservedMinor !== null ? toMajorUnits(lowestObservedMinor) : null,
+        dealScore,
+        alerted: Boolean(alert?.enabled),
+        targetPrice:
+          alert?.targetPriceMinor !== undefined ? toMajorUnits(alert.targetPriceMinor) : undefined,
+      };
+    });
   }
 
   async setAlert(

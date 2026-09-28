@@ -69,6 +69,12 @@ export interface FinancialSnapshot {
   safeSpendingLimit: number;
   totalSpentThisMonth: number;
   totalIncomeThisMonth: number;
-  pendingReminders: Array<{ id?: string; title: string; amount: number; dueDate: string; status: string }>;
+  pendingReminders: Array<{
+    id?: string;
+    title: string;
+    amount: number;
+    dueDate: string;
+    status: string;
+  }>;
   budgets: Array<{ id?: string; category: string; limit: number }>;
 }

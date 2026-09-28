@@ -47,10 +47,9 @@ export class NotificationsService {
     if (!cleanToken.startsWith('ExponentPushToken') && !cleanToken.startsWith('ExpoPushToken')) {
       return;
     }
-    await this.userModel.updateOne(
-      { _id: userId },
-      { $addToSet: { pushTokens: cleanToken } },
-    ).exec();
+    await this.userModel
+      .updateOne({ _id: userId }, { $addToSet: { pushTokens: cleanToken } })
+      .exec();
   }
 
   private async dispatchPushToUser(

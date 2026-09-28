@@ -1,4 +1,10 @@
-import { Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -38,9 +44,12 @@ export class DealsService implements OnModuleInit, OnModuleDestroy {
       void this.checkTrackedDealsForPriceDrops().catch(() => {});
     }, 60000);
 
-    this.priceCrawlerTimer = setInterval(() => {
-      void this.checkTrackedDealsForPriceDrops().catch(() => {});
-    }, 3 * 60 * 60 * 1000);
+    this.priceCrawlerTimer = setInterval(
+      () => {
+        void this.checkTrackedDealsForPriceDrops().catch(() => {});
+      },
+      3 * 60 * 60 * 1000,
+    );
   }
 
   onModuleDestroy() {
@@ -65,7 +74,9 @@ export class DealsService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    this.logger.log(`[deals-crawler] Checked ${trackedDeals.length} tracked deals, alerted ${dropsFound} drops`);
+    this.logger.log(
+      `[deals-crawler] Checked ${trackedDeals.length} tracked deals, alerted ${dropsFound} drops`,
+    );
     return { checked: trackedDeals.length, dropsFound };
   }
 

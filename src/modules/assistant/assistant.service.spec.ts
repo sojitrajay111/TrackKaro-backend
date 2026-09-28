@@ -88,6 +88,13 @@ describe('Assistant Modular Services', () => {
     geminiOrchestratorService = module.get<GeminiOrchestratorService>(GeminiOrchestratorService);
   });
 
+  it('instantiates all modular sub-services successfully', () => {
+    expect(assistantService).toBeDefined();
+    expect(billOcrService).toBeDefined();
+    expect(ruleBasedService).toBeDefined();
+    expect(geminiOrchestratorService).toBeDefined();
+  });
+
   describe('BillOcrService', () => {
     it('returns default draft when no GEMINI_API_KEY is configured', async () => {
       const result = await billOcrService.scanBill('data:image/jpeg;base64,ZmFrZQ==');
@@ -127,7 +134,10 @@ describe('Assistant Modular Services', () => {
     });
 
     it('guides user for external market price searches', async () => {
-      const reply = await assistantService.generateReply('user-1', 'What is the best price for iPhone 15?');
+      const reply = await assistantService.generateReply(
+        'user-1',
+        'What is the best price for iPhone 15?',
+      );
       expect(reply.text).toContain('TrackKaro is your Personal Finance & Budget Assistant');
     });
 
@@ -138,7 +148,12 @@ describe('Assistant Modular Services', () => {
     });
 
     it('processes voice transcripts with fallback heuristic', async () => {
-      const result = await assistantService.parseAndProcessVoice('user-1', 'Zepto groceries 350', 'expense', false);
+      const result = await assistantService.parseAndProcessVoice(
+        'user-1',
+        'Zepto groceries 350',
+        'expense',
+        false,
+      );
       expect(result.amount).toBe(350);
       expect(result.category).toBe('Groceries');
       expect(result.title).toBe('Zepto');
