@@ -10,6 +10,7 @@ export interface PublicUser {
   email: string;
   name: string;
   phone?: string;
+  gender?: 'male' | 'female' | 'other' | 'unspecified';
 }
 
 @Injectable()
@@ -45,6 +46,7 @@ export class UsersService {
       email: user.email,
       name: user.name,
       phone: user.phone,
+      gender: user.gender ?? 'unspecified',
     };
   }
 }

@@ -17,6 +17,10 @@ export class User {
   @Prop({ trim: true })
   phone?: string;
 
+  /** Optional — used for deal browse suggestions (Amazon search queries). */
+  @Prop({ enum: ['male', 'female', 'other', 'unspecified'], default: 'unspecified' })
+  gender?: 'male' | 'female' | 'other' | 'unspecified';
+
   @Prop({ type: [String], default: [] })
   pushTokens!: string[];
 }

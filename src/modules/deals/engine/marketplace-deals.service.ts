@@ -118,6 +118,11 @@ export class MarketplaceDealsService {
   }
 
   private async searchProviders(userId?: string, query?: string): Promise<DealSearchResponse> {
+    const profile =
+      userId && Types.ObjectId.isValid(userId)
+        ? await this.dealsService.getUserFinancialProfile(userId)
+        : EMPTY_PROFILE;
+
     for (const provider of this.dealsProviderRegistry.getProviders()) {
       if (!provider.isConfigured()) continue;
 
@@ -131,7 +136,7 @@ export class MarketplaceDealsService {
       }
 
       try {
-        const result = await provider.search({ userId, query, profile: EMPTY_PROFILE });
+        const result = await provider.search({ userId, query, profile });
         if (result.status === 'ok' && result.deals.length > 0) {
           const offers = await this.dealIngestionService.ingest(provider.id, result.deals);
           await this.dealCacheService.logSearch(

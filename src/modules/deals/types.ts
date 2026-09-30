@@ -47,6 +47,7 @@ export interface UserFinancialProfile {
   safeSpendingLimit: number;
   topCategories: { category: string; spent: number }[];
   budgetMap: Map<string, { limit: number; spent: number; remaining: number }>;
+  gender?: 'male' | 'female' | 'other' | 'unspecified';
 }
 
 /** `'provider'` is the target production path (real marketplace data only). `'legacy'` is the

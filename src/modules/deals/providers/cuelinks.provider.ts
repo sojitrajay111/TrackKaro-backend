@@ -201,7 +201,9 @@ export class CuelinksDealsProvider implements DealsProvider {
           })
         : rawOffers;
 
-      const deals: ProviderDealResult[] = filtered.map((offer) => this.mapOfferToDeal(offer));
+      const deals: ProviderDealResult[] = filtered
+        .map((offer) => this.mapOfferToDeal(offer))
+        .filter((d): d is ProviderDealResult => d !== null);
 
       return {
         status: 'ok',
@@ -218,20 +220,21 @@ export class CuelinksDealsProvider implements DealsProvider {
     }
   }
 
-  private mapOfferToDeal(offer: CuelinksOfferRaw): ProviderDealResult {
+  private mapOfferToDeal(offer: CuelinksOfferRaw): ProviderDealResult | null {
     const rawCategory = offer.categories?.[0]?.name ?? 'Shopping';
     const category = this.normalizeCategory(rawCategory);
 
-    // Extract discount percent
+    const priceFromApi =
+      (typeof offer.discount_price === 'number' && offer.discount_price > 0) ||
+      (typeof offer.original_price === 'number' && offer.original_price > 0);
+
     let discountPercent = typeof offer.percent_off === 'number' ? offer.percent_off : 0;
     if (!discountPercent) {
       const pctMatch =
         offer.title.match(/(\d+)%\s*off/i) || offer.description?.match(/(\d+)%\s*off/i);
       if (pctMatch) discountPercent = parseInt(pctMatch[1], 10);
     }
-    if (!discountPercent) discountPercent = 20; // baseline fallback
 
-    // Extract price
     let currentPrice = typeof offer.discount_price === 'number' ? offer.discount_price : 0;
     if (!currentPrice) {
       const priceMatch =
@@ -241,11 +244,21 @@ export class CuelinksDealsProvider implements DealsProvider {
         currentPrice = parseFloat(priceMatch[1].replace(/,/g, ''));
       }
     }
-    if (!currentPrice) currentPrice = 999; // baseline fallback
+
+    if (currentPrice <= 0) {
+      return null;
+    }
 
     let originalPrice = typeof offer.original_price === 'number' ? offer.original_price : 0;
-    if (!originalPrice || originalPrice <= currentPrice) {
-      originalPrice = Math.round(currentPrice / Math.max(0.01, 1 - discountPercent / 100));
+    if (originalPrice > currentPrice) {
+      if (!discountPercent) {
+        discountPercent = Math.round(((originalPrice - currentPrice) / originalPrice) * 100);
+      }
+    } else if (discountPercent > 0 && discountPercent < 100) {
+      originalPrice = Math.round(currentPrice / (1 - discountPercent / 100));
+    } else {
+      originalPrice = currentPrice;
+      discountPercent = 0;
     }
 
     const savingsAmount = Math.max(0, originalPrice - currentPrice);
@@ -263,12 +276,11 @@ export class CuelinksDealsProvider implements DealsProvider {
       finalPrice: currentPrice,
       savingsAmount,
       expiryDate: offer.end_date || undefined,
-      rating: 4.5,
       imageUrl: getDealImage(category, offer.title),
       dealUrl: offer.tracking_url,
-      priceVerified: true,
-      urlVerified: true,
-      confidence: 1,
+      priceVerified: priceFromApi,
+      urlVerified: Boolean(offer.tracking_url),
+      confidence: priceFromApi ? 1 : 0.65,
     };
   }
 

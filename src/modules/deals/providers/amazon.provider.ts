@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { AppConfig } from '@/config/configuration';
+import { resolveDefaultDealSearchQuery } from '../deal-default-query.util';
 import { CuelinksDealsProvider } from './cuelinks.provider';
 import {
   DealsProvider,
@@ -74,12 +75,7 @@ export class AmazonDealsProvider implements DealsProvider {
 
     let query = context.query?.trim();
     if (!query || query.toLowerCase() === 'all') {
-      const topCat = context.profile?.topCategories?.[0]?.category;
-      if (topCat && topCat !== 'Other') {
-        query = `${topCat} deals`;
-      } else {
-        query = 'trending deals';
-      }
+      query = resolveDefaultDealSearchQuery(context.profile);
     }
 
     const rapidApiKey = this.configService.get('rapidapi', { infer: true })?.key;
@@ -105,9 +101,9 @@ export class AmazonDealsProvider implements DealsProvider {
       const json = (await response.json()) as RapidApiResponse;
       const rawProducts = (json.data?.products ?? []).slice(0, 24);
 
-      const deals: ProviderDealResult[] = await Promise.all(
-        rawProducts.map(async (p) => this.mapProductToDeal(p, context)),
-      );
+      const deals: ProviderDealResult[] = (
+        await Promise.all(rawProducts.map(async (p) => this.mapProductToDeal(p, context)))
+      ).filter((d): d is ProviderDealResult => d !== null);
 
       // Sort exact keyword matches to the top (e.g. iPhone 16 above competitor ads)
       const qTerms = query
@@ -145,22 +141,24 @@ export class AmazonDealsProvider implements DealsProvider {
   private async mapProductToDeal(
     p: RapidApiAmazonProduct,
     context: DealsProviderContext,
-  ): Promise<ProviderDealResult> {
-    const currentPrice = this.parsePrice(p.product_price) || 499;
-    let originalPrice = this.parsePrice(p.product_original_price);
+  ): Promise<ProviderDealResult | null> {
+    const currentPrice = this.parsePrice(p.product_price);
+    if (currentPrice <= 0) {
+      return null;
+    }
 
+    let originalPrice = this.parsePrice(p.product_original_price);
     let discountPercent = 0;
-    if (originalPrice && originalPrice > currentPrice) {
+    if (originalPrice > currentPrice) {
       discountPercent = Math.round(((originalPrice - currentPrice) / originalPrice) * 100);
     } else {
-      // Default to 15-20% baseline if original price not given
-      discountPercent = 20;
-      originalPrice = Math.round(currentPrice / 0.8);
+      originalPrice = currentPrice;
     }
 
     const savingsAmount = Math.max(0, originalPrice - currentPrice);
     const category = this.inferCategory(p.product_title, context.query);
-    const rating = p.product_star_rating ? parseFloat(p.product_star_rating) : 4.3;
+    const parsedRating = p.product_star_rating ? parseFloat(p.product_star_rating) : NaN;
+    const rating = Number.isFinite(parsedRating) ? parsedRating : undefined;
 
     // Convert raw Amazon URL into monetized Cuelinks tracking URL
     const monetizedUrl =
@@ -178,7 +176,7 @@ export class AmazonDealsProvider implements DealsProvider {
       deliveryCharge: 0,
       finalPrice: currentPrice,
       savingsAmount,
-      rating: isNaN(rating) ? 4.3 : rating,
+      rating,
       imageUrl:
         p.product_photo ||
         'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?auto=format&fit=crop&w=600&q=80',

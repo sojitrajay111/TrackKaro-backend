@@ -5,6 +5,7 @@ import { BudgetsModule } from '@/modules/budgets/budgets.module';
 import { NotificationsModule } from '@/modules/notifications/notifications.module';
 import { RemindersModule } from '@/modules/reminders/reminders.module';
 import { TransactionsModule } from '@/modules/transactions/transactions.module';
+import { UsersModule } from '@/modules/users/users.module';
 import { DealsController } from './deals.controller';
 import { DealsService } from './deals.service';
 import { DealCacheService } from './engine/deal-cache.service';
@@ -39,6 +40,7 @@ import { Product, ProductSchema } from './schemas/product.schema';
     TransactionsModule,
     BudgetsModule,
     RemindersModule,
+    UsersModule,
   ],
   controllers: [DealsController],
   providers: [

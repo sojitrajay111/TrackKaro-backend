@@ -15,6 +15,8 @@ import { BudgetsService } from '@/modules/budgets/budgets.service';
 import { NotificationsService } from '@/modules/notifications/notifications.service';
 import { RemindersService } from '@/modules/reminders/reminders.service';
 import { TransactionsService } from '@/modules/transactions/transactions.service';
+import { UsersService } from '@/modules/users/users.service';
+import { resolveDefaultDealSearchQuery } from './deal-default-query.util';
 import { DealsProviderRegistry } from './providers/deals-provider.registry';
 import { GeminiLegacyDealsProvider } from './providers/gemini-legacy.provider';
 import { getPlatformSearchUrl } from './providers/platform-links.util';
@@ -36,6 +38,7 @@ export class DealsService implements OnModuleInit, OnModuleDestroy {
     private readonly remindersService: RemindersService,
     private readonly dealsProviderRegistry: DealsProviderRegistry,
     private readonly geminiLegacyProvider: GeminiLegacyDealsProvider,
+    private readonly usersService: UsersService,
   ) {}
 
   onModuleInit() {
@@ -245,12 +248,16 @@ export class DealsService implements OnModuleInit, OnModuleDestroy {
     const currentBalance = Math.max(0, totalIncomeAllTime - totalExpenseAllTime);
     const safeSpendingLimit = Math.max(0, currentBalance - upcomingBills);
 
+    const userDoc = await this.usersService.findById(userId);
+    const gender = userDoc?.gender ?? 'unspecified';
+
     return {
       currentBalance,
       upcomingBills,
       safeSpendingLimit,
       topCategories,
       budgetMap,
+      gender,
     };
   }
 
@@ -417,12 +424,7 @@ export class DealsService implements OnModuleInit, OnModuleDestroy {
 
     let effectiveQuery = query?.trim();
     if (!effectiveQuery || effectiveQuery.toLowerCase() === 'all') {
-      const topCat = profile.topCategories?.[0]?.category;
-      if (topCat && topCat !== 'Other') {
-        effectiveQuery = `${topCat} deals`;
-      } else {
-        effectiveQuery = 'best deals';
-      }
+      effectiveQuery = resolveDefaultDealSearchQuery(profile);
     }
 
     for (const provider of this.dealsProviderRegistry.getProviders()) {
