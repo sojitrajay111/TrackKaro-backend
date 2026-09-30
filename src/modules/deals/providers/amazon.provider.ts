@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { AppConfig } from '@/config/configuration';
+import { filterDealsByQueryRelevance } from '../deal-query-relevance.util';
 import { resolveDefaultDealSearchQuery } from '../deal-default-query.util';
 import { CuelinksDealsProvider } from './cuelinks.provider';
 import {
@@ -112,7 +113,8 @@ export class AmazonDealsProvider implements DealsProvider {
         .split(/\s+/)
         .filter((w) => w.length >= 2);
 
-      const validDeals = deals.filter((d) => d.currentPrice > 0);
+      let validDeals = deals.filter((d) => d.currentPrice > 0);
+      validDeals = filterDealsByQueryRelevance(validDeals, query);
       if (qTerms.length > 0) {
         validDeals.sort((a, b) => {
           const aTitle = a.title.toLowerCase();
