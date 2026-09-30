@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
 
-export const GROUP_SPLIT_TYPES = ['equal', 'exact', 'percentage'] as const;
+export const GROUP_SPLIT_TYPES = ['equal', 'shares', 'exact', 'percentage'] as const;
 export type GroupSplitType = (typeof GROUP_SPLIT_TYPES)[number];
 
 @Schema({ _id: false })
@@ -11,6 +11,10 @@ export class GroupExpenseSplit {
 
   @Prop({ required: true })
   amountMinor!: number;
+
+  /** Equal split weight (1 = one portion, 2 = double share). Optional for legacy rows. */
+  @Prop({ min: 1, max: 99 })
+  shares?: number;
 
   /** Set once this member has confirmed their share and it's been logged as a personal
    * transaction — points at that Transaction's id so it's never double-confirmed. */

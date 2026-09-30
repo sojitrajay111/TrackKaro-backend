@@ -49,6 +49,7 @@ export interface PublicGroupMember {
 export interface PublicGroupExpenseSplit {
   memberName: string;
   amount: number;
+  shares?: number;
   confirmedTransactionId?: string;
 }
 
@@ -411,6 +412,7 @@ export class GroupsService {
     const splitsMinor = dto.splits.map((s) => ({
       memberName: s.memberName,
       amountMinor: toMinorUnits(s.amount),
+      ...(s.shares != null && s.shares >= 1 ? { shares: Math.min(99, Math.round(s.shares)) } : {}),
     }));
     const splitSum = splitsMinor.reduce((acc, s) => acc + s.amountMinor, 0);
 
@@ -508,6 +510,9 @@ export class GroupsService {
           ? dto.splits.map((s) => ({
               memberName: s.memberName,
               amountMinor: toMinorUnits(s.amount),
+              ...(s.shares != null && s.shares >= 1
+                ? { shares: Math.min(99, Math.round(s.shares)) }
+                : {}),
             }))
           : expense.splits;
 
@@ -833,6 +838,7 @@ export class GroupsService {
       splits: doc.splits.map((s) => ({
         memberName: s.memberName,
         amount: toMajorUnits(s.amountMinor),
+        ...(s.shares != null && s.shares >= 1 ? { shares: s.shares } : {}),
         confirmedTransactionId: s.confirmedTransactionId,
       })),
       splitType: doc.splitType,

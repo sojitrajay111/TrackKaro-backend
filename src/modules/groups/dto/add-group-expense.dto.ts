@@ -24,6 +24,12 @@ class GroupSplitInputDto {
   @Min(0)
   @Max(100_000_000)
   amount!: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(99)
+  shares?: number;
 }
 
 export class AddGroupExpenseDto {
