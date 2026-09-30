@@ -47,14 +47,16 @@ const CATEGORY_SEARCH: Record<string, string> = {
 
 /** Default Amazon/Cuelinks search when the user has not typed a query. */
 export function resolveDefaultDealSearchQuery(profile?: Pick<UserFinancialProfile, 'gender' | 'topCategories'>): string {
+  const gender = profile?.gender ?? 'unspecified';
+  if (gender === 'female') return FEMALE_DEFAULTS[0];
+  if (gender === 'male') return MALE_DEFAULTS[0];
+  if (gender === 'other') return NEUTRAL_DEFAULTS[0];
+
   const topCat = profile?.topCategories?.[0]?.category;
   if (topCat && topCat !== 'Other' && CATEGORY_SEARCH[topCat]) {
     return CATEGORY_SEARCH[topCat];
   }
 
-  const gender = profile?.gender ?? 'unspecified';
-  if (gender === 'female') return FEMALE_DEFAULTS[0];
-  if (gender === 'male') return MALE_DEFAULTS[0];
   return NEUTRAL_DEFAULTS[0];
 }
 
@@ -71,7 +73,7 @@ export function listDefaultDealSearchQueries(
     .filter(Boolean) as string[];
 
   const merged: string[] = [];
-  for (const q of [...fromCategories, ...pool]) {
+  for (const q of [...pool, ...fromCategories]) {
     const key = q.toLowerCase();
     if (!merged.some((existing) => existing.toLowerCase() === key)) {
       merged.push(q);

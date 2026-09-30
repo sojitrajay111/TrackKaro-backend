@@ -190,6 +190,19 @@ export class DealsService implements OnModuleInit, OnModuleDestroy {
    * Current liquid balance, upcoming pending bills, safe discretionary cash buffer,
    * category budgets, and user's top spending habits.
    */
+  /** Lightweight profile for live marketplace search (avoids loading all transactions). */
+  async getLightDealSearchProfile(userId: string): Promise<UserFinancialProfile> {
+    const userDoc = await this.usersService.findById(userId);
+    return {
+      currentBalance: 0,
+      upcomingBills: 0,
+      safeSpendingLimit: 0,
+      topCategories: [],
+      budgetMap: new Map(),
+      gender: userDoc?.gender ?? 'unspecified',
+    };
+  }
+
   async getUserFinancialProfile(userId: string): Promise<UserFinancialProfile> {
     const now = new Date();
     const currentYear = now.getFullYear();

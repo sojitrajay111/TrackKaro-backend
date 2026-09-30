@@ -120,7 +120,7 @@ export class MarketplaceDealsService {
   private async searchProviders(userId?: string, query?: string): Promise<DealSearchResponse> {
     const profile =
       userId && Types.ObjectId.isValid(userId)
-        ? await this.dealsService.getUserFinancialProfile(userId)
+        ? await this.dealsService.getLightDealSearchProfile(userId)
         : EMPTY_PROFILE;
 
     for (const provider of this.dealsProviderRegistry.getProviders()) {
