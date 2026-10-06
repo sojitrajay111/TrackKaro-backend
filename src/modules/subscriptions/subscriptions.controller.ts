@@ -1,8 +1,19 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
 
 import { CurrentUser, CurrentUserPayload } from '@/common/decorators/current-user.decorator';
 import { ParseObjectIdPipe } from '@/common/pipes/parse-object-id.pipe';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
+import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { SubscriptionsService } from './subscriptions.service';
 
 @Controller('subscriptions')
@@ -24,6 +35,15 @@ export class SubscriptionsController {
   @Post()
   create(@CurrentUser() user: CurrentUserPayload, @Body() dto: CreateSubscriptionDto) {
     return this.subscriptionsService.create(user.userId, dto);
+  }
+
+  @Patch(':id')
+  update(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: UpdateSubscriptionDto,
+  ) {
+    return this.subscriptionsService.update(user.userId, id, dto);
   }
 
   @Delete(':id')

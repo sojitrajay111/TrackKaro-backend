@@ -4,6 +4,7 @@ import { Model } from 'mongoose';
 
 import { toMajorUnits, toMinorUnits } from '@/common/money/money.util';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
+import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { Subscription, SubscriptionDocument } from './schemas/subscription.schema';
 
 export interface PublicSubscription {
@@ -49,6 +50,29 @@ export class SubscriptionsService {
       isRedundant: dto.isRedundant,
       redundancyReason: dto.redundancyReason,
     });
+    return this.toPublic(doc);
+  }
+
+  async update(userId: string, id: string, dto: UpdateSubscriptionDto): Promise<PublicSubscription> {
+    const patch: Record<string, unknown> = { ...dto };
+    if (dto.amount !== undefined) {
+      patch.amountMinor = toMinorUnits(dto.amount);
+      delete patch.amount;
+    }
+
+    const existing = await this.subscriptionModel.findOne({ _id: id, userId }).exec();
+    if (!existing) throw new NotFoundException('Subscription not found');
+
+    const billingCycle = dto.billingCycle ?? existing.billingCycle;
+    const amountMinor =
+      dto.amount !== undefined ? toMinorUnits(dto.amount) : existing.amountMinor;
+    patch.annualCostMinor =
+      billingCycle === 'Monthly' ? amountMinor * MONTHS_PER_YEAR : amountMinor;
+
+    const doc = await this.subscriptionModel
+      .findOneAndUpdate({ _id: id, userId }, patch, { new: true })
+      .exec();
+    if (!doc) throw new NotFoundException('Subscription not found');
     return this.toPublic(doc);
   }
 
