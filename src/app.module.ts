@@ -20,6 +20,7 @@ import { NotificationsModule } from '@/modules/notifications/notifications.modul
 import { RemindersModule } from '@/modules/reminders/reminders.module';
 import { SavingsModule } from '@/modules/savings/savings.module';
 import { SubscriptionsModule } from '@/modules/subscriptions/subscriptions.module';
+import { TasksModule } from '@/modules/tasks/tasks.module';
 import { TransactionsModule } from '@/modules/transactions/transactions.module';
 import { UsersModule } from '@/modules/users/users.module';
 
@@ -41,6 +42,7 @@ import { UsersModule } from '@/modules/users/users.module';
     TransactionsModule,
     RemindersModule,
     SubscriptionsModule,
+    TasksModule,
     SavingsModule,
     KhataModule,
     GroupsModule,
