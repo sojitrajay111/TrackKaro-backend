@@ -115,8 +115,7 @@ A summarized listing of available endpoints. All routes (except `/auth/*` and `/
 | `GET` | `/deals/search?q=:query&engine=` | **Deal discovery:** tries real providers (Cuelinks) by default, returning `{status, engine, deals}`; `engine=legacy` opts into the old Gemini-generated search for comparison |
 | `PATCH` | `/deals/offers/:offerId/alert` | Create/update/disable a price-drop alert on a provider-mode merchant offer |
 | `POST` | `/deals/offers/:offerId/click` | Record a click-through and resolve where to redirect (dynamic Cuelinks affiliate link, else the plain deal URL) |
-| `GET` | `/savings` | Retrieve real aggregate savings metrics |
-| `GET` | `/savings/metrics` | Retrieve 5-month historical trend, MoM growth %, and computed saver tier |
+| `GET` | `/savings/metrics` | Real aggregate savings metrics plus 5-month historical trend, MoM growth %, and computed saver tier |
 | `POST` | `/assistant/messages` | **Gemini AI Copilot:** Ask financial advice |
 | `POST` | `/assistant/scan-bill` | **Gemini Vision OCR:** Extract structured data from receipt image |
 | `GET` | `/health` | Service health status check |
