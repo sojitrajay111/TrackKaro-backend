@@ -26,6 +26,9 @@ export async function bootstrapApp(): Promise<INestApplication> {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService<AppConfig>);
 
+  // Disable Express ETag so responses are not cached as 304 without CORS headers
+  app.getHttpAdapter().getInstance().set('etag', false);
+
   app.use(helmet());
   const configuredOrigins = config.get('corsOrigins', { infer: true }) ?? [];
   app.enableCors({
