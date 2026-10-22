@@ -7,6 +7,7 @@ import { KhataService } from '@/modules/khata/khata.service';
 import { NotificationsService } from '@/modules/notifications/notifications.service';
 import { RemindersService } from '@/modules/reminders/reminders.service';
 import { SubscriptionsService } from '@/modules/subscriptions/subscriptions.service';
+import { TasksService } from '@/modules/tasks/tasks.service';
 import { TransactionsService } from '@/modules/transactions/transactions.service';
 
 /**
@@ -23,6 +24,7 @@ export class AccountService {
     private readonly groupsService: GroupsService,
     private readonly remindersService: RemindersService,
     private readonly subscriptionsService: SubscriptionsService,
+    private readonly tasksService: TasksService,
     private readonly dealsService: DealsService,
     private readonly notificationsService: NotificationsService,
   ) {}
@@ -35,6 +37,7 @@ export class AccountService {
       this.groupsService.deleteAllForUser(userId),
       this.remindersService.deleteAllForUser(userId),
       this.subscriptionsService.deleteAllForUser(userId),
+      this.tasksService.deleteAllForUser(userId),
       this.dealsService.deleteAllForUser(userId),
       this.notificationsService.clearAll(userId),
     ]);

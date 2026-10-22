@@ -7,6 +7,7 @@ import { KhataModule } from '@/modules/khata/khata.module';
 import { NotificationsModule } from '@/modules/notifications/notifications.module';
 import { RemindersModule } from '@/modules/reminders/reminders.module';
 import { SubscriptionsModule } from '@/modules/subscriptions/subscriptions.module';
+import { TasksModule } from '@/modules/tasks/tasks.module';
 import { TransactionsModule } from '@/modules/transactions/transactions.module';
 import { AccountController } from './account.controller';
 import { AccountService } from './account.service';
@@ -19,6 +20,7 @@ import { AccountService } from './account.service';
     GroupsModule,
     RemindersModule,
     SubscriptionsModule,
+    TasksModule,
     DealsModule,
     NotificationsModule,
   ],

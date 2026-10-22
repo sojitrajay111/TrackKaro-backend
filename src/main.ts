@@ -2,6 +2,7 @@ import * as dns from 'dns';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { INestApplication } from '@nestjs/common';
 import helmet from 'helmet';
 
@@ -23,8 +24,12 @@ export async function bootstrapApp(): Promise<INestApplication> {
     return cachedApp;
   }
 
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const config = app.get(ConfigService<AppConfig>);
+
+  // Bill scans send the photo as base64 JSON; Express's default 100kb cap rejected real photos.
+  // Kept under Vercel's 4.5MB request ceiling.
+  app.useBodyParser('json', { limit: '4mb' });
 
   // Disable Express ETag so responses are not cached as 304 without CORS headers
   app.getHttpAdapter().getInstance().set('etag', false);

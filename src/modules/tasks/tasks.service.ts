@@ -67,6 +67,10 @@ export class TasksService {
     if (result.deletedCount === 0) throw new NotFoundException('Task not found');
   }
 
+  async deleteAllForUser(userId: string): Promise<void> {
+    await this.taskModel.deleteMany({ userId }).exec();
+  }
+
   private toPublic(doc: TaskDocument): PublicTask {
     return {
       id: String(doc._id),
