@@ -75,7 +75,12 @@ describe('RemindersService recurring payments', () => {
     const r = await bill(userId);
     await service.update(userId, r.id, { status: 'paid' });
     const undone = await service.undoPayment(userId, r.id);
-    expect(undone).toMatchObject({ status: 'pending', dueDate: '2026-10-29', reminderDate: '2026-10-26', payments: [] });
+    expect(undone).toMatchObject({
+      status: 'pending',
+      dueDate: '2026-10-29',
+      reminderDate: '2026-10-26',
+      payments: [],
+    });
     await expect(service.undoPayment(userId, r.id)).rejects.toThrow('no payment to undo');
   });
 
