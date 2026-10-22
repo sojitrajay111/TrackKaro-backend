@@ -44,6 +44,13 @@ export class RemindersController {
     return this.remindersService.update(user.userId, id, dto);
   }
 
+  /** Reverse the latest payment (a recurring bill returns to the period it settled). */
+  @Post(':id/undo-payment')
+  @HttpCode(HttpStatus.OK)
+  undoPayment(@CurrentUser() user: CurrentUserPayload, @Param('id', ParseObjectIdPipe) id: string) {
+    return this.remindersService.undoPayment(user.userId, id);
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
