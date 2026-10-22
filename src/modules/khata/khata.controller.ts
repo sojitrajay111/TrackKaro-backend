@@ -15,6 +15,7 @@ import { CurrentUser, CurrentUserPayload } from '@/common/decorators/current-use
 import { ParseObjectIdPipe } from '@/common/pipes/parse-object-id.pipe';
 import { CreateKhataEntryDto } from './dto/create-khata-entry.dto';
 import { SettleAllDto } from './dto/settle-all.dto';
+import { UpdateKhataEntryDto } from './dto/update-khata-entry.dto';
 import { KhataService } from './khata.service';
 
 @Controller('khata')
@@ -32,6 +33,15 @@ export class KhataController {
   @Post()
   create(@CurrentUser() user: CurrentUserPayload, @Body() dto: CreateKhataEntryDto) {
     return this.khataService.create(user.userId, dto);
+  }
+
+  @Patch(':id')
+  update(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: UpdateKhataEntryDto,
+  ) {
+    return this.khataService.update(user.userId, id, dto);
   }
 
   @Patch(':id/toggle')

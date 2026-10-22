@@ -5,6 +5,7 @@ import { Model } from 'mongoose';
 import { toMajorUnits, toMinorUnits } from '@/common/money/money.util';
 import { escapeRegExp } from '@/common/utils/regex.util';
 import { CreateKhataEntryDto } from './dto/create-khata-entry.dto';
+import { UpdateKhataEntryDto } from './dto/update-khata-entry.dto';
 import { KhataEntry, KhataEntryDocument } from './schemas/khata-entry.schema';
 
 export interface PublicKhataEntry {
@@ -56,6 +57,17 @@ export class KhataService {
       notes: dto.notes,
       status: dto.status ?? 'pending',
     });
+    return this.toPublic(doc);
+  }
+
+  async update(userId: string, id: string, dto: UpdateKhataEntryDto): Promise<PublicKhataEntry> {
+    const { amount, ...fields } = dto;
+    const patch: Record<string, unknown> = { ...fields };
+    if (amount !== undefined) patch.amountMinor = toMinorUnits(amount);
+    const doc = await this.khataModel
+      .findOneAndUpdate({ _id: id, userId }, patch, { new: true })
+      .exec();
+    if (!doc) throw new NotFoundException('Khata entry not found');
     return this.toPublic(doc);
   }
 
