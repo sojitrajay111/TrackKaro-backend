@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/deals/check-tracked",
-      "schedule": "0 */6 * * *"
+      "schedule": "30 2 * * *"
     }
   ],
   "routes": [
