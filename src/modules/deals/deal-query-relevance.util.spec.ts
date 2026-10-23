@@ -39,4 +39,22 @@ describe('deal-query-relevance', () => {
     expect(out).toHaveLength(1);
     expect(out[0]!.title).toContain('Shirt');
   });
+
+  it('strict mode (page 2+) drops off-topic products instead of falling back to all of them', () => {
+    const offTopic = [
+      { title: 'Travel Backpack 30L Laptop Bag' },
+      { title: 'Steel Water Bottle 1L' },
+      { title: 'Gel Pen Set of 10' },
+    ];
+    const query = 'wireless earbuds bluetooth headphones';
+    // Default (page 1) keeps the old safety net: something rather than nothing.
+    expect(filterDealsByQueryRelevance(offTopic, query)).toHaveLength(3);
+    // Strict: nothing matches, so nothing is shown.
+    expect(filterDealsByQueryRelevance(offTopic, query, true)).toEqual([]);
+    // Strict keeps real matches.
+    const mixed = [...offTopic, { title: 'boAt Airdopes Wireless Earbuds Bluetooth 5.3' }];
+    expect(filterDealsByQueryRelevance(mixed, query, true).map((d) => d.title)).toEqual([
+      'boAt Airdopes Wireless Earbuds Bluetooth 5.3',
+    ]);
+  });
 });
