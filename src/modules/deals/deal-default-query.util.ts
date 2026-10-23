@@ -46,7 +46,9 @@ const CATEGORY_SEARCH: Record<string, string> = {
 };
 
 /** Default Amazon/Cuelinks search when the user has not typed a query. */
-export function resolveDefaultDealSearchQuery(profile?: Pick<UserFinancialProfile, 'gender' | 'topCategories'>): string {
+export function resolveDefaultDealSearchQuery(
+  profile?: Pick<UserFinancialProfile, 'gender' | 'topCategories'>,
+): string {
   const gender = profile?.gender ?? 'unspecified';
   if (gender === 'female') return FEMALE_DEFAULTS[0];
   if (gender === 'male') return MALE_DEFAULTS[0];

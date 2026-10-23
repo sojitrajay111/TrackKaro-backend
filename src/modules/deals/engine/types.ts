@@ -49,4 +49,7 @@ export interface DealSearchResponse {
   /** Present on 'unavailable'/'error' (why), and optionally on 'success' (e.g. a cache note). */
   message?: string;
   deals: PublicMerchantDeal[];
+  /** Page number this response is for (1-based) and whether asking for page + 1 may return more. */
+  page?: number;
+  hasMore?: boolean;
 }

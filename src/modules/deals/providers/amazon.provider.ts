@@ -44,6 +44,9 @@ interface RapidApiResponse {
  * Automatically transforms every Amazon India product URL into a monetized Cuelinks affiliate link
  * bound to your publisher channel ID (`cid=322790`) via `CuelinksDealsProvider.resolveAffiliateUrl()`.
  */
+/** Upper bound on result pages a client can request (each page is one RapidAPI call). */
+const MAX_PAGE = 10;
+
 @Injectable()
 export class AmazonDealsProvider implements DealsProvider {
   readonly id = 'amazon';
@@ -82,7 +85,8 @@ export class AmazonDealsProvider implements DealsProvider {
     const rapidApiKey = this.configService.get('rapidapi', { infer: true })?.key;
 
     try {
-      const url = `https://real-time-amazon-data.p.rapidapi.com/search?query=${encodeURIComponent(query)}&country=IN`;
+      const page = Math.max(1, Math.min(MAX_PAGE, Math.floor(context.page ?? 1)));
+      const url = `https://real-time-amazon-data.p.rapidapi.com/search?query=${encodeURIComponent(query)}&country=IN&page=${page}`;
       const response = await fetch(url, {
         headers: {
           'x-rapidapi-key': rapidApiKey ?? '',
@@ -100,7 +104,8 @@ export class AmazonDealsProvider implements DealsProvider {
       }
 
       const json = (await response.json()) as RapidApiResponse;
-      const rawProducts = (json.data?.products ?? []).slice(0, 24);
+      // Everything Amazon returned for this page (was capped at 24; more pages come via `page`).
+      const rawProducts = json.data?.products ?? [];
 
       const deals: ProviderDealResult[] = (
         await Promise.all(rawProducts.map(async (p) => this.mapProductToDeal(p, context)))

@@ -69,6 +69,14 @@ describe('MarketplaceDealsService', () => {
     const dealsServiceStub = {
       engineMode: () => 'provider',
       discoverDeals: discoverDealsMock,
+      // searchProviders reads a light profile before calling providers.
+      getLightDealSearchProfile: jest.fn().mockResolvedValue({
+        currentBalance: 0,
+        upcomingBills: 0,
+        safeSpendingLimit: 0,
+        budgets: [],
+        recentCategories: [],
+      }),
     } as unknown as DealsService;
 
     cuelinksResolveMock = jest.fn().mockResolvedValue(null);
@@ -146,6 +154,28 @@ describe('MarketplaceDealsService', () => {
 
     await service.searchDeals(USER_ID, 'p2-query');
     expect(searchMock).toHaveBeenCalledTimes(1); // second call served from cache, not a new provider hit
+  });
+
+  it('provider mode: page 2 skips the cache and asks the provider for that page', async () => {
+    searchMock.mockResolvedValue({
+      status: 'ok',
+      deals: [fakeDeal({ dealUrl: 'https://fakemart.example/pg1' })],
+    });
+    const first = await service.searchDeals(USER_ID, 'paged-query');
+    expect(first.page).toBe(1);
+    expect(searchMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: 'paged-query', page: 1 }),
+    );
+
+    searchMock.mockResolvedValue({
+      status: 'ok',
+      deals: [fakeDeal({ dealUrl: 'https://fakemart.example/pg2' })],
+    });
+    const second = await service.searchDeals(USER_ID, 'paged-query', undefined, 2);
+    expect(searchMock).toHaveBeenCalledTimes(2); // not served from page 1's cache
+    expect(searchMock).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 }));
+    expect(second.page).toBe(2);
+    expect(second.hasMore).toBe(true);
   });
 
   it('provider mode: never fabricates a deal — returns unavailable when the provider has none', async () => {

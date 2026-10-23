@@ -58,13 +58,17 @@ export class MarketplaceDealsService {
     userId?: string,
     query?: string,
     engineOverride?: DealsEngineMode,
+    page = 1,
   ): Promise<DealSearchResponse> {
     const mode = engineOverride ?? this.dealsService.engineMode();
 
     if (mode === 'legacy') {
-      return this.searchLegacy(userId, query);
+      // The AI engine has no further pages.
+      return page > 1
+        ? { status: 'success', engine: 'legacy', deals: [], page, hasMore: false }
+        : this.searchLegacy(userId, query);
     }
-    return this.searchProviders(userId, query);
+    return this.searchProviders(userId, query, page);
   }
 
   private async searchLegacy(userId?: string, query?: string): Promise<DealSearchResponse> {
@@ -117,7 +121,11 @@ export class MarketplaceDealsService {
     };
   }
 
-  private async searchProviders(userId?: string, query?: string): Promise<DealSearchResponse> {
+  private async searchProviders(
+    userId?: string,
+    query?: string,
+    page = 1,
+  ): Promise<DealSearchResponse> {
     const profile =
       userId && Types.ObjectId.isValid(userId)
         ? await this.dealsService.getLightDealSearchProfile(userId)
@@ -126,17 +134,21 @@ export class MarketplaceDealsService {
     for (const provider of this.dealsProviderRegistry.getProviders()) {
       if (!provider.isConfigured()) continue;
 
-      const cached = await this.dealCacheService.getFreshCachedOffers(provider.id, query);
+      // The cache answers page 1 only; later pages always come from the provider.
+      const cached =
+        page === 1 ? await this.dealCacheService.getFreshCachedOffers(provider.id, query) : null;
       if (cached && cached.length > 0) {
         return {
           status: 'success',
           engine: 'provider',
           deals: await this.toPublicMerchantDeals(cached, userId),
+          page,
+          hasMore: true,
         };
       }
 
       try {
-        const result = await provider.search({ userId, query, profile });
+        const result = await provider.search({ userId, query, profile, page });
         if (result.status === 'ok' && result.deals.length > 0) {
           const offers = await this.dealIngestionService.ingest(provider.id, result.deals);
           await this.dealCacheService.logSearch(
@@ -173,6 +185,8 @@ export class MarketplaceDealsService {
             status: 'success',
             engine: 'provider',
             deals: await this.toPublicMerchantDeals(offers, userId),
+            page,
+            hasMore: page < 10,
           };
         }
 

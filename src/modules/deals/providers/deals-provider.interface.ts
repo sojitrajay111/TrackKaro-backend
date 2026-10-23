@@ -55,6 +55,8 @@ export interface DealsProviderContext {
   userId?: string;
   query?: string;
   profile: UserFinancialProfile;
+  /** 1-based results page (providers that page their source pass it through). */
+  page?: number;
 }
 
 /**

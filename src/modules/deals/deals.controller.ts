@@ -42,7 +42,12 @@ export class DealsController {
     @CurrentUser() user?: CurrentUserPayload,
     @Query('q') query?: string,
     @Query('engine') engine?: string,
+    @Query('page') pageRaw?: string,
   ) {
+    const page = pageRaw === undefined ? 1 : Number(pageRaw);
+    if (!Number.isInteger(page) || page < 1 || page > 10) {
+      throw new BadRequestException('page must be a whole number from 1 to 10');
+    }
     let engineOverride: DealsEngineMode | undefined;
     if (engine !== undefined) {
       if (engine !== 'provider' && engine !== 'legacy') {
@@ -50,7 +55,7 @@ export class DealsController {
       }
       engineOverride = engine;
     }
-    return this.marketplaceDealsService.searchDeals(user?.userId, query, engineOverride);
+    return this.marketplaceDealsService.searchDeals(user?.userId, query, engineOverride, page);
   }
 
   /** Create/update/disable a price-drop alert on a specific provider-mode merchant offer
