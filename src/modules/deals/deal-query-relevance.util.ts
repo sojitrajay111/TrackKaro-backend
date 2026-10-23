@@ -119,12 +119,15 @@ export function titleMatchesSearchQuery(title: string, query: string): boolean {
 export function filterDealsByQueryRelevance<T extends { title: string }>(
   deals: T[],
   query: string,
+  /** Only real matches, no "show everything" fallback (used for page 2+, where Amazon's
+   * results drift off-topic: a "headphones" search ends up listing bags and bottles). */
+  strict = false,
 ): T[] {
   const q = query.trim();
   if (!q || deals.length === 0) return deals;
 
   const filtered = deals.filter((d) => titleMatchesSearchQuery(d.title, q));
-  if (filtered.length > 0) return filtered;
+  if (filtered.length > 0 || strict) return filtered;
 
   const blockedOnly = deals.filter((d) => !isTitleBlockedForQuery(d.title, q));
   return blockedOnly.length > 0 ? blockedOnly : deals;

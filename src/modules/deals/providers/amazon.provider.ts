@@ -119,7 +119,7 @@ export class AmazonDealsProvider implements DealsProvider {
         .filter((w) => w.length >= 2);
 
       let validDeals = deals.filter((d) => d.currentPrice > 0);
-      validDeals = filterDealsByQueryRelevance(validDeals, query);
+      validDeals = filterDealsByQueryRelevance(validDeals, query, page > 1);
       if (qTerms.length > 0) {
         validDeals.sort((a, b) => {
           const aTitle = a.title.toLowerCase();
