@@ -78,6 +78,8 @@ export interface PublicExpenseGroup {
   members: PublicGroupMember[];
   expenses: PublicGroupExpense[];
   createdAt: string;
+  /** Splitwise-style "Simplify group debts" (true unless switched off). */
+  simplifyDebts: boolean;
 }
 
 export interface GroupInvitePreview {
@@ -92,7 +94,9 @@ export interface GroupBalances {
   groupId: string;
   totalGroupSpendMinor: number;
   members: { name: string; netMinor: number }[];
+  /** Who pays whom: fewest payments when `simplified`, otherwise pairwise debts. */
   settlements: { from: string; to: string; amountMinor: number }[];
+  simplified: boolean;
 }
 
 export interface PendingGroupConfirmation {
@@ -314,6 +318,9 @@ export class GroupsService {
 
     if (dto.name !== undefined) {
       group.name = dto.name.trim();
+    }
+    if (dto.simplifyDebts !== undefined) {
+      group.simplifyDebts = dto.simplifyDebts;
     }
     if (dto.category !== undefined) {
       group.category = dto.category;
@@ -642,9 +649,13 @@ export class GroupsService {
     const memberBalances: MemberBalance[] = Array.from(balances.entries()).map(
       ([name, netMinor]) => ({ name, netMinor }),
     );
-    const settlements = this.debtSimplificationService.simplify(memberBalances);
+    // Same net balances either way; only how they're paid off differs.
+    const simplified = group.simplifyDebts !== false;
+    const settlements = simplified
+      ? this.debtSimplificationService.simplify(memberBalances)
+      : this.debtSimplificationService.pairwise(expenses);
 
-    return { groupId, totalGroupSpendMinor, members: memberBalances, settlements };
+    return { groupId, totalGroupSpendMinor, members: memberBalances, settlements, simplified };
   }
 
   /** Every one of the current user's own split lines, across every group they can access
@@ -824,6 +835,7 @@ export class GroupsService {
       })),
       expenses: expenses.map((e) => this.toPublicExpense(e)),
       createdAt: group.createdAt.toISOString().split('T')[0],
+      simplifyDebts: group.simplifyDebts !== false,
     };
   }
 

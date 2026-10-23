@@ -58,6 +58,11 @@ export class ExpenseGroup {
   @Prop({ type: [GroupMemberSchema], required: true })
   members!: GroupMember[];
 
+  /** Splitwise's "Simplify group debts". On (default): balances settle in the fewest payments.
+   * Off: who-owes-whom stays pairwise, exactly as the expenses were paid and split. */
+  @Prop({ type: Boolean, default: true })
+  simplifyDebts!: boolean;
+
   declare createdAt: Date;
 }
 

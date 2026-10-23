@@ -1,5 +1,13 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsIn, IsOptional, IsString, MinLength, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsOptional,
+  IsString,
+  MinLength,
+  ValidateNested,
+} from 'class-validator';
 
 import { GROUP_CATEGORIES, GroupCategory } from '../schemas/expense-group.schema';
 
@@ -28,4 +36,8 @@ export class UpdateGroupDto {
   @ValidateNested({ each: true })
   @Type(() => GroupMemberInputDto)
   members?: GroupMemberInputDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  simplifyDebts?: boolean;
 }
