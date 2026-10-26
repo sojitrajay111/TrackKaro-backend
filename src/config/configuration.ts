@@ -27,6 +27,12 @@ export interface AppConfig {
   rapidapi: {
     key: string;
   };
+  /** Firebase service account for push (FCM). All three must be set, or push stays off. */
+  firebase: {
+    projectId: string;
+    clientEmail: string;
+    privateKey: string;
+  };
 }
 
 export default (): AppConfig => ({
@@ -57,5 +63,11 @@ export default (): AppConfig => ({
   },
   rapidapi: {
     key: process.env.RAPIDAPI_KEY ?? '',
+  },
+  firebase: {
+    projectId: process.env.FIREBASE_PROJECT_ID ?? '',
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL ?? '',
+    // Env vars hold the PEM on one line with literal "\n"; turn those back into newlines.
+    privateKey: (process.env.FIREBASE_PRIVATE_KEY ?? '').replace(/\\n/g, '\n'),
   },
 });

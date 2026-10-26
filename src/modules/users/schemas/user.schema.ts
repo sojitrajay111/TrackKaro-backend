@@ -21,8 +21,21 @@ export class User {
   @Prop({ enum: ['male', 'female', 'other', 'unspecified'], default: 'unspecified' })
   gender?: 'male' | 'female' | 'other' | 'unspecified';
 
-  @Prop({ type: [String], default: [] })
-  pushTokens!: string[];
+  /** FCM registration tokens, one per device that allowed notifications (newest last). */
+  @Prop({
+    type: [{ token: String, platform: String, updatedAt: Date, _id: false }],
+    default: [],
+  })
+  fcmTokens!: FcmToken[];
+}
+
+export const PUSH_PLATFORMS = ['android', 'ios'] as const;
+export type PushPlatform = (typeof PUSH_PLATFORMS)[number];
+
+export interface FcmToken {
+  token: string;
+  platform: PushPlatform;
+  updatedAt: Date;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

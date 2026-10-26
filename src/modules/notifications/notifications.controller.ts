@@ -12,6 +12,7 @@ import {
 
 import { CurrentUser, CurrentUserPayload } from '@/common/decorators/current-user.decorator';
 import { ParseObjectIdPipe } from '@/common/pipes/parse-object-id.pipe';
+import { RegisterPushTokenDto, RemovePushTokenDto } from './dto/push-token.dto';
 import { NotificationsService } from './notifications.service';
 
 @Controller('notifications')
@@ -23,10 +24,18 @@ export class NotificationsController {
     return this.notificationsService.findAll(user.userId);
   }
 
+  /** The app's FCM token for this device (sent after the user allows notifications). */
   @Post('token')
   @HttpCode(HttpStatus.OK)
-  async registerToken(@CurrentUser() user: CurrentUserPayload, @Body('token') token: string) {
-    await this.notificationsService.registerPushToken(user.userId, token);
+  async registerToken(@CurrentUser() user: CurrentUserPayload, @Body() dto: RegisterPushTokenDto) {
+    await this.notificationsService.registerPushToken(user.userId, dto.token, dto.platform);
+    return { success: true };
+  }
+
+  @Post('token/remove')
+  @HttpCode(HttpStatus.OK)
+  async removeToken(@CurrentUser() user: CurrentUserPayload, @Body() dto: RemovePushTokenDto) {
+    await this.notificationsService.removePushToken(user.userId, dto.token);
     return { success: true };
   }
 

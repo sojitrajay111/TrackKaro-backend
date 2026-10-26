@@ -137,6 +137,8 @@ export class AuthService {
     await this.refreshTokenModel
       .updateMany({ userId: new Types.ObjectId(userId) }, { revoked: true })
       .exec();
+    // Signed-out devices shouldn't keep getting this account's notifications.
+    await this.usersService.clearPushTokens(userId);
     return { success: true };
   }
 

@@ -21,6 +21,11 @@ export class UsersService {
     return this.userModel.findOne({ email: email.toLowerCase().trim() }).exec();
   }
 
+  /** Forget every device push token (used by "log out of all devices"). */
+  async clearPushTokens(userId: string): Promise<void> {
+    await this.userModel.updateOne({ _id: userId }, { $set: { fcmTokens: [] } }).exec();
+  }
+
   async findById(id: string | Types.ObjectId): Promise<UserDocument | null> {
     return this.userModel.findById(id).exec();
   }
