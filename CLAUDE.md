@@ -25,14 +25,20 @@ npm test
 npm run test:watch
 npm run test:cov
 
-# A single unit test file
+# A single unit test file / a single test by name
 npx jest src/modules/auth/auth.service.spec.ts
+npx jest -t "part of the test name"
 
-# E2E tests (spins up its own Nest app instance)
+# E2E tests (test/jest-e2e.json, matches test/**/*.e2e-spec.ts)
 npm run test:e2e
+
+# Run the API against an ephemeral in-memory MongoDB (no MONGO_URI needed, data not persisted)
+npx ts-node -r tsconfig-paths/register dev-server-inmemory.ts
 ```
 
-**Critical constraint:** only 3 `*.spec.ts` files exist today (`auth.service.spec.ts` plus two more) — the module surface is otherwise untested. Don't assume a change is covered; check for a sibling `.spec.ts` before relying on tests to catch a regression.
+Imports use the `@/` path alias for `src/` (mapped in `tsconfig.json` and in Jest's `moduleNameMapper`).
+
+**Test coverage is uneven:** unit specs exist for `auth`, `budgets`, `reminders`, `notifications` (push), `assistant` (service + `task-parser`), `groups` (debt simplification) and most of `deals` (providers, engine services, query relevance). Other modules (`transactions`, `khata`, `tasks`, `subscriptions`, `savings`, `users`, `account`) have none, and `test/` currently holds only the e2e Jest config, with no `*.e2e-spec.ts` files. Check for a sibling `.spec.ts` before you rely on tests to catch a regression.
 
 ---
 
@@ -42,13 +48,17 @@ NestJS 10 + Mongoose 8, one feature module per domain under `src/modules/`, wire
 
 ### Bootstrap (`src/main.ts`)
 
-`bootstrapApp()` builds and caches a single Nest app instance (`cachedApp`), then two different entry points reuse it: a local standalone listener (`app.listen(port)`, skipped when `process.env.VERCEL` is set) and a Vercel serverless `handler(req, res)` export. When changing global setup (CORS, `ValidationPipe`, `helmet`, the exception filter), edit `bootstrapApp()` — both entry points pick it up. CORS allows configured origins from `CORS_ORIGINS`, any `localhost`/`127.0.0.1` origin, and any `*.vercel.app` origin. `ValidationPipe` runs with `whitelist: true, forbidNonWhitelisted: true, transform: true` — DTOs are the single source of truth for what a request body may contain.
+`bootstrapApp()` builds and caches a single Nest app instance (`cachedApp`), then two different entry points reuse it: a local standalone listener (`app.listen(port)`, skipped when `process.env.VERCEL` is set) and a Vercel serverless `handler(req, res)` export. When changing global setup (CORS, `ValidationPipe`, `helmet`, the exception filter), edit `bootstrapApp()` — both entry points pick it up. On Vercel, `vercel.json` routes every path to `api/index.js`, which strips the `/api` prefix and calls the handler from the **compiled** `dist/main`, so the deploy depends on `nest build` output. `vercel.json` also defines a daily cron (`30 2 * * *` UTC) that hits `/deals/check-tracked`, a `@Public()` route that runs `DealsService.checkTrackedDealsForPriceDrops()`. CORS allows configured origins from `CORS_ORIGINS`, any `localhost`/`127.0.0.1` origin, and any `*.vercel.app` origin. `ValidationPipe` runs with `whitelist: true, forbidNonWhitelisted: true, transform: true` — DTOs are the single source of truth for what a request body may contain.
 
 ### Module shape
 
 Each `src/modules/<domain>/` follows the same layout: `<domain>.module.ts`, `<domain>.controller.ts`, `<domain>.service.ts`, `dto/*.dto.ts` (class-validator classes), `schemas/*.schema.ts` (Mongoose `@Schema()` classes). Larger domains (e.g. `groups/`) split service logic further into `services/`. Controllers stay thin — validation and auth are handled by DTOs/guards, and business logic lives in the service.
 
-Modules: `auth`, `users`, `account` (GDPR-style full data wipe), `transactions`, `khata`, `groups`, `budgets`, `reminders`, `subscriptions`, `deals`, `savings`, `assistant` (Gemini AI), `notifications`, `health`. All are imported into `AppModule`; `MailModule` (OTP email) and `DatabaseModule` are global-ish infra modules imported once alongside them.
+Modules: `auth`, `users`, `account` (GDPR-style full data wipe), `transactions`, `khata`, `groups`, `budgets`, `reminders`, `subscriptions`, `deals`, `savings`, `tasks` (planner tasks with due date/time/priority), `assistant` (Gemini AI), `notifications` (in-app plus FCM push via `firebase-admin`, optional `FIREBASE_*` env), `health`.
+
+### Assistant (`src/modules/assistant/`)
+
+`AssistantService` orchestrates the copilot chat, bill OCR, voice transcription and natural-language task creation. Each Gemini call goes through `services/gemini-orchestrator.service.ts`, and every feature has a deterministic fallback (`rule-based-assistant.service.ts`, the rule parser in `services/task-parser.ts`), so the module works without `GEMINI_API_KEY`. `task-parser.ts` also validates whatever the model returns. Task dates are computed in the user's timezone (default `Asia/Kolkata`) via `localDateKey()`, not UTC. All are imported into `AppModule`; `MailModule` (OTP email) and `DatabaseModule` are global-ish infra modules imported once alongside them.
 
 ### Mongoose schema conventions
 
@@ -72,9 +82,10 @@ The API boundary and frontend speak rupee floats (`amount: number`); everything 
 
 - **Core rule:** the production deal-search path (`GET /deals/search`, default `DEALS_ENGINE_MODE=provider`) must never fabricate a product, price, discount or link. It only surfaces data a real marketplace provider actually returned; if no provider is configured/implemented, it returns an empty result rather than inventing one.
 - **`DealsProvider` interface** (`providers/deals-provider.interface.ts`): `isConfigured()` + `search(context) → { status: 'ok'|'unavailable'|'error', deals: ProviderDealResult[], message? }`. A provider returns raw, already-real deal data — it does **not** persist or score anything.
-- **`CuelinksDealsProvider`** (`providers/cuelinks.provider.ts`) is the affiliate aggregator provider: `isConfigured()` checks `CUELINKS_API_KEY`/`CUELINKS_CHANNEL_ID`. It resolves direct merchant URLs into verified Cuelinks tracking redirects (`https://linksredirect.com/?cid=...&subid=...&url=...`).
+- **`AmazonDealsProvider`** (`providers/amazon.provider.ts`) queries live Amazon India listings through RapidAPI (`isConfigured()` checks `RAPIDAPI_KEY`, read from `config.rapidapi.key`) and wraps each product URL in a Cuelinks affiliate link. If the query is empty, it falls back to `resolveDefaultDealSearchQuery()` (`deal-default-query.util.ts`), and it drops off-topic results with `filterDealsByQueryRelevance()` (`deal-query-relevance.util.ts`).
+- **`CuelinksDealsProvider`** (`providers/cuelinks.provider.ts`) is the affiliate aggregator provider: `isConfigured()` checks `CUELINKS_API_KEY`/`CUELINKS_CHANNEL_ID`. It resolves direct merchant URLs into verified Cuelinks tracking redirects (`https://linksredirect.com/?cid=...&subid=...&url=...`), and other providers reuse it for this.
 - **`GeminiLegacyDealsProvider`** (`providers/gemini-legacy.provider.ts`) is the pre-existing AI-generated deal finder (optionally Google Search-grounded), preserved unchanged in behavior for comparison. It is deliberately **not** registered in `DealsProviderRegistry`/`DEALS_PROVIDERS` — `DealsService` invokes it directly, and only when `DealsEngineMode` is `'legacy'` (via `DEALS_ENGINE_MODE=legacy` env or `?engine=legacy` on the request). The production (`'provider'`) path never silently falls back to it.
-- **`DealsProviderRegistry`** (`providers/deals-provider.registry.ts`) holds every registered real provider via the `DEALS_PROVIDERS` multi-provider injection token (wired in `deals.module.ts`).
+- **`DealsProviderRegistry`** (`providers/deals-provider.registry.ts`) holds every registered real provider via the `DEALS_PROVIDERS` injection token. Its `useFactory` in `deals.module.ts` sets the priority order, currently `[amazon, cuelinks]`. To add a provider, implement `DealsProvider`, add it to the module's `providers`, and append it to that factory.
 - **`DealsService.discoverDeals()`** is the orchestrator: in `'provider'` mode it tries each registered provider in order and stops at the first with real results; in `'legacy'` mode it runs only the Gemini provider. Either way, whatever a provider returns flows through `rankAndPersistProviderDeals()` — TrackKaro's own interpretation layer (purchase-safety check via `calculatePurchaseCheck`, multi-factor ranking via `calculateMultiFactorRank`, a generic category-stock-photo fallback when no image is supplied) — before being persisted and returned. This layer scores/displays provider data; it never invents it.
 - Money: providers return rupee floats on `ProviderDealResult`; `rankAndPersistProviderDeals` converts to paise via `toMinorUnits` before persisting, matching the rest of the codebase's minor-units-at-rest convention.
 
@@ -111,8 +122,8 @@ Pipeline (`engine/`):
 ### Testing
 
 - Jest (`npm test`) for unit specs colocated as `<name>.spec.ts` next to the file under test (e.g. `src/modules/auth/auth.service.spec.ts`).
-- `npm run test:e2e` uses `test/jest-e2e.json` and (per the dependency list) `mongodb-memory-server` + Supertest for a real in-memory Mongo instance rather than mocks.
-- There's also a standalone in-memory dev server variant (`dev-server-inmemory.ts` style scripts, run via `ts-node -r tsconfig-paths/register`) used for local iteration without a real Atlas connection — don't confuse its state with the real `npm run start:dev` server; they're separate processes and, if both are started, will fight over port 4000 (`EADDRINUSE`).
+- `npm run test:e2e` uses `test/jest-e2e.json`. `mongodb-memory-server` and Supertest are installed as dev dependencies for that, but no e2e spec has been written yet.
+- `dev-server-inmemory.ts` (repo root) boots the API against a `MongoMemoryServer` and fills in dev JWT secrets, so you can iterate without Atlas. It is a separate process from `npm run start:dev`, and running both makes them fight over port 4000 (`EADDRINUSE`).
 
 ---
 

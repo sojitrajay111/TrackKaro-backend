@@ -219,7 +219,7 @@ function cleanTitle(text: string, timeMatch?: string): string {
     .replace(/\bremind\s+me\b/gi, ' ')
     .replace(/\breminder\b/gi, ' ')
     .replace(
-      /\b(?:yaad\s+dila(?:na|o|ye|jo)?|yaad\s+karav(?:jo|o)?)\b|याद\s*दिला(?:ना|ओ|एं|इए)?|યાદ\s*(?:કરાવ|અપાવ)(?:જો|શો|ો)?|रिमाइंडर|રિમાઇન્ડર/gi,
+      /\b(?:yaad\s+dila(?:na|o|ye|jo)?|yaad\s+karav(?:jo|o)?)\b|(?:का|की|के|को)?\s*(?:याद\s*दिला(?:ना|ओ|एं|एँ|इए)?|रिमाइंडर\s*(?:दें|दो|दीजिए|देना|लगाओ|सेट\s*करो)?)|(?:નું|ની|નો)?\s*(?:યાદ\s*(?:કરાવ|અપાવ)(?:જો|શો|ો)?|રિમાઇન્ડર\s*(?:આપો|મૂકો)?)/gi,
       ' ',
     )
     // dates

@@ -110,6 +110,17 @@ describe('titles drop the command words, date and time', () => {
   });
 });
 
+describe('the assistant starter prompts', () => {
+  it.each([
+    ['Remind me tomorrow at 9 AM to pay electricity bill', 'Pay electricity bill'],
+    ['कल सुबह 9 बजे बिजली बिल भरने का रिमाइंडर दें', 'बिजली बिल भरने'],
+    ['કાલે સવારે 9 વાગે લાઈટ બિલ ભરવાનું યાદ અપાવો', 'લાઈટ બિલ ભરવા'],
+  ])('%s', (text, title) => {
+    expect(isTaskIntent(text)).toBe(true);
+    expect(ruleBasedTaskParse(text, TODAY)).toMatchObject({ title, dueDate: '2026-10-27', dueTime: '09:00' });
+  });
+});
+
 describe('isTaskIntent', () => {
   it.each([
     'set reminder for tomorrow 4 55 PM for pay bill of pizza',
