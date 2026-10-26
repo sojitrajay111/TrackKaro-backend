@@ -6,6 +6,7 @@ import { KhataModule } from '@/modules/khata/khata.module';
 import { RemindersModule } from '@/modules/reminders/reminders.module';
 import { SavingsModule } from '@/modules/savings/savings.module';
 import { SubscriptionsModule } from '@/modules/subscriptions/subscriptions.module';
+import { TasksModule } from '@/modules/tasks/tasks.module';
 import { TransactionsModule } from '@/modules/transactions/transactions.module';
 import { AssistantController } from './assistant.controller';
 import { AssistantService } from './assistant.service';
@@ -22,6 +23,7 @@ import { RuleBasedAssistantService } from './services/rule-based-assistant.servi
     SubscriptionsModule,
     SavingsModule,
     BudgetsModule,
+    TasksModule,
   ],
   controllers: [AssistantController],
   providers: [

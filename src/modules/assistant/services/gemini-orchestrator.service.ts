@@ -278,4 +278,81 @@ Guidelines:
 4. Keep replies structured, concise, friendly, and complete with clear bullet points.
 5. If asked about external shopping deals, product discounts, or live market prices, guide the user to check Amazon/Flipkart/Google or explore the Deals tab, and remind them of TrackKaro's personal finance capabilities.`;
   }
+  /** Gemini models tried in order for the JSON helpers below. */
+  private static readonly JSON_MODELS = ['gemini-3.6-flash', 'gemini-2.5-flash'];
+
+  /** Sends `parts` to Gemini and returns the parsed JSON reply, or null if every model fails. */
+  private async geminiJson(
+    parts: unknown[],
+    apiKey: string,
+  ): Promise<Record<string, unknown> | null> {
+    for (const model of GeminiOrchestratorService.JSON_MODELS) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts }],
+            generationConfig: { temperature: 0.1, responseMimeType: 'application/json' },
+          }),
+        });
+        if (!res.ok) continue;
+        const data = await res.json();
+        const rawJson = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!rawJson) continue;
+        const parsed = JSON.parse(rawJson);
+        if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Understands a reminder / to-do sentence in English, Hindi, Gujarati or a mix. The reply is
+   * untrusted: AssistantService validates every field (task-parser.ts#mergeAiTask).
+   */
+  async callGeminiTaskParse(
+    text: string,
+    today: string,
+    apiKey: string,
+  ): Promise<Record<string, unknown> | null> {
+    const weekday = new Date(`${today}T00:00:00Z`).toLocaleDateString('en-US', {
+      weekday: 'long',
+      timeZone: 'UTC',
+    });
+    const prompt = `You turn a spoken or typed reminder into a to-do task for an Indian personal-finance app.
+Today is ${weekday}, ${today} (the user's local date). The sentence may be English, Hindi, Gujarati, Hinglish or a mix, and may contain speech-to-text mistakes.
+Sentence: ${JSON.stringify(text)}
+
+Return strict JSON:
+{
+  "title": short task title in the user's language, starting with a verb, WITHOUT the command words ("remind me", "set reminder", "add task") and WITHOUT the date/time. Fix obvious speech-to-text mistakes. Example: "set reminder for tomorrow 4 55 PM for pay bill of pizza" -> "Pay pizza bill",
+  "date": "YYYY-MM-DD" (resolve tomorrow/kal/parso/weekdays/explicit dates against today; "kal" means tomorrow for a reminder; no date mentioned -> ${today}),
+  "time": "HH:mm" 24-hour, or null if no time was said. Read "4 55 PM", "4.55 pm", "455 pm" as 16:55; "shaam 5 baje" as 17:00; "subah 9 baje" as 09:00,
+  "priority": "low" | "medium" | "high" (high only if urgent/important/jaruri is said; otherwise "medium"),
+  "amount": number of rupees mentioned (e.g. "send 1000 to Amiras" -> 1000), or null
+}`;
+    return this.geminiJson([{ text: prompt }], apiKey);
+  }
+
+  /** Speech to text for the app's voice input (audio recorded on the phone). */
+  async callGeminiTranscribe(
+    audioBase64: string,
+    mimeType: string,
+    apiKey: string,
+  ): Promise<string | null> {
+    const prompt = `Transcribe this short voice note exactly as spoken. It may be English, Hindi, Gujarati or a mix (Hinglish).
+Keep each word in the script it was spoken in (Hindi in Devanagari, Gujarati in Gujarati, English in Latin).
+Write numbers as digits and times like "4:55 PM". Do not add anything that was not said.
+Return strict JSON: {"transcript": "..."} (empty string if nothing was said).`;
+    const reply = await this.geminiJson(
+      [{ text: prompt }, { inlineData: { mimeType, data: audioBase64 } }],
+      apiKey,
+    );
+    const transcript = typeof reply?.transcript === 'string' ? reply.transcript.trim() : '';
+    return transcript || null;
+  }
 }

@@ -12,6 +12,7 @@ import { RemindersService } from '@/modules/reminders/reminders.service';
 import { SubscriptionsService } from '@/modules/subscriptions/subscriptions.service';
 import { SavingsService } from '@/modules/savings/savings.service';
 import { BudgetsService } from '@/modules/budgets/budgets.service';
+import { TasksService } from '@/modules/tasks/tasks.service';
 
 describe('Assistant Modular Services', () => {
   let assistantService: AssistantService;
@@ -30,6 +31,14 @@ describe('Assistant Modular Services', () => {
   const mockTransactionsService = {
     findAll: jest.fn().mockResolvedValue({ items: [], total: 0 }),
     create: jest.fn().mockResolvedValue({ id: 'tx-1' }),
+  };
+
+  const mockTasksService = {
+    create: jest.fn(async (_userId: string, dto: Record<string, unknown>) => ({
+      id: 'task-1',
+      status: 'todo',
+      ...dto,
+    })),
   };
 
   const mockKhataService = {
@@ -79,6 +88,7 @@ describe('Assistant Modular Services', () => {
         { provide: SubscriptionsService, useValue: mockSubscriptionsService },
         { provide: SavingsService, useValue: mockSavingsService },
         { provide: BudgetsService, useValue: mockBudgetsService },
+        { provide: TasksService, useValue: mockTasksService },
       ],
     }).compile();
 
@@ -157,6 +167,57 @@ describe('Assistant Modular Services', () => {
       expect(result.amount).toBe(350);
       expect(result.category).toBe('Groceries');
       expect(result.title).toBe('Zepto');
+    });
+
+    describe('reminders / tasks (rules only: no GEMINI_API_KEY in tests)', () => {
+      const savedKey = process.env.GEMINI_API_KEY;
+      beforeAll(() => delete process.env.GEMINI_API_KEY);
+      afterAll(() => {
+        if (savedKey !== undefined) process.env.GEMINI_API_KEY = savedKey;
+      });
+
+      it('chat: "set reminder for tomorrow 4 55 PM for pay bill of pizza" creates the task', async () => {
+        mockTasksService.create.mockClear();
+        const reply = await assistantService.generateReply(
+          'user-1',
+          'set reminder for tomorrow 4 55 PM for pay bill of pizza',
+          '2026-10-26',
+        );
+        expect(mockTasksService.create).toHaveBeenCalledWith(
+          'user-1',
+          expect.objectContaining({
+            title: 'Pay bill of pizza',
+            dueDate: '2026-10-27',
+            dueTime: '16:55',
+            priority: 'medium',
+          }),
+        );
+        expect(reply.actionType).toBe('reminder_set');
+        expect(reply.text).toContain('Pay bill of pizza');
+        expect(reply.text).toContain('tomorrow at 4:55 PM');
+      });
+
+      it('parse-task without autoSave only returns the fields', async () => {
+        mockTasksService.create.mockClear();
+        const parsed = await assistantService.parseTask(
+          'user-1',
+          'remind me friday 9 am to renew insurance',
+          '2026-10-26',
+        );
+        expect(parsed).toMatchObject({
+          title: 'Renew insurance',
+          dueDate: '2026-10-30',
+          dueTime: '09:00',
+          source: 'rules',
+        });
+        expect(mockTasksService.create).not.toHaveBeenCalled();
+      });
+
+      it('questions about bills still list bills, not create tasks', async () => {
+        mockTasksService.create.mockClear();
+        await assistantService.generateReply('user-1', 'show my upcoming bills');
+        expect(mockTasksService.create).not.toHaveBeenCalled();
+      });
     });
   });
 });
