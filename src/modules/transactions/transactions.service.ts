@@ -68,7 +68,8 @@ export class TransactionsService {
       notes: dto.notes,
     });
 
-    void this.notificationsService
+    // Awaited so serverless doesn't cut it off; failures are swallowed below.
+    await this.notificationsService
       .create(userId, {
         title: doc.type === 'income' ? 'Income Added' : 'Expense Added',
         message: `${doc.type === 'income' ? 'Received' : 'Spent'} ₹${toMajorUnits(doc.amountMinor)} for "${doc.title}"`,
@@ -166,7 +167,8 @@ export class TransactionsService {
         ? `Updated "${existing.title}":\n• ${changes.join('\n• ')}`
         : `Updated "${existing.title}" (₹${toMajorUnits(existing.amountMinor)})`;
 
-    void this.notificationsService
+    // Awaited so serverless doesn't cut it off; failures are swallowed below.
+    await this.notificationsService
       .create(userId, {
         title: `Personal Expense Updated: "${existing.title}"`,
         message: changeSummary,
@@ -175,6 +177,33 @@ export class TransactionsService {
       .catch(() => {});
 
     return this.toPublic(existing);
+  }
+
+  /**
+   * A group-expense share that someone confirmed into their own spending (the id is stored on
+   * the split by GroupsService, never taken from a request). Keeps it in step when the group
+   * expense is edited.
+   */
+  async syncGroupShare(
+    id: string,
+    patch: { amount: number; title: string; date: string },
+  ): Promise<void> {
+    if (!Types.ObjectId.isValid(id)) return;
+    await this.transactionModel
+      .updateOne(
+        { _id: new Types.ObjectId(id) },
+        { amountMinor: toMinorUnits(patch.amount), title: patch.title, date: patch.date },
+      )
+      .exec();
+  }
+
+  /** Removes confirmed group shares whose group expense was deleted (or that left the split). */
+  async removeGroupShares(ids: string[]): Promise<void> {
+    const valid = ids
+      .filter((id) => Types.ObjectId.isValid(id))
+      .map((id) => new Types.ObjectId(id));
+    if (valid.length === 0) return;
+    await this.transactionModel.deleteMany({ _id: { $in: valid } }).exec();
   }
 
   async remove(userId: string, id: string): Promise<void> {
@@ -192,7 +221,8 @@ export class TransactionsService {
     const date = doc.date;
     await doc.deleteOne();
 
-    void this.notificationsService
+    // Awaited so serverless doesn't cut it off; failures are swallowed below.
+    await this.notificationsService
       .create(userId, {
         title: `Personal Expense Deleted: "${title}"`,
         message: `Deleted "${title}":\n• Previous Amount: ₹${amount}\n• Category: ${category}\n• Date: ${date}`,

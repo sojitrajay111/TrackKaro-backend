@@ -5,6 +5,7 @@
  * the rule-based fallback, and validation of whatever the model returns.
  */
 import { TASK_PRIORITIES, TaskPriority } from '@/modules/tasks/schemas/task.schema';
+import { localDateKey } from '@/common/date/local-date.util';
 
 export interface ParsedTask {
   transcript: string;
@@ -23,17 +24,7 @@ export interface ParsedTask {
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-/** Today's date in the user's timezone (default India), as YYYY-MM-DD. Not UTC: in India
- * the UTC date is still "yesterday" until 5:30 AM. */
-export function localDateKey(timeZone = 'Asia/Kolkata', now = new Date()): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(now);
-  return parts; // en-CA formats as YYYY-MM-DD
-}
+export { localDateKey };
 
 export function isValidDateKey(value: unknown): value is string {
   if (typeof value !== 'string' || !DATE_RE.test(value)) return false;

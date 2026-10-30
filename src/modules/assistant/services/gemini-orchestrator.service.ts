@@ -7,6 +7,7 @@ import { SubscriptionsService } from '@/modules/subscriptions/subscriptions.serv
 import { TransactionsService } from '@/modules/transactions/transactions.service';
 import { SmartParseResult } from '../types';
 import { RuleBasedAssistantService } from './rule-based-assistant.service';
+import { localDateKey } from '@/common/date/local-date.util';
 
 const TOP_CATEGORY_COUNT = 4;
 
@@ -151,7 +152,7 @@ export class GeminiOrchestratorService {
     mode: 'expense' | 'khata',
     apiKey: string,
   ): Promise<SmartParseResult | null> {
-    const todayIso = new Date().toISOString().split('T')[0];
+    const todayIso = localDateKey();
     const prompt =
       mode === 'expense'
         ? `You are an AI financial expense assistant. Today is ${todayIso}. Parse this Indian voice/text transcript (Gujarati, Hindi, Hinglish, or English): "${text}".

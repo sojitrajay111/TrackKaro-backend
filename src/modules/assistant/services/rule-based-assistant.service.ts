@@ -9,6 +9,7 @@ import { SavingsService } from '@/modules/savings/savings.service';
 import { SubscriptionsService } from '@/modules/subscriptions/subscriptions.service';
 import { TransactionsService } from '@/modules/transactions/transactions.service';
 import { AffordabilityPayload, ChatReply, FinancialSnapshot, SmartParseResult } from '../types';
+import { localDateKey } from '@/common/date/local-date.util';
 
 const TOP_CATEGORY_COUNT = 4;
 const ALL_TRANSACTIONS_LIMIT = 1000;
@@ -588,7 +589,7 @@ export class RuleBasedAssistantService {
   }
 
   fallbackLocalParse(text: string, mode: 'expense' | 'khata'): SmartParseResult {
-    const today = new Date().toISOString().split('T')[0];
+    const today = localDateKey();
     const amtMatch = text.match(/\b(\d+(?:[.,]\d+)?)\b/);
     const amount = amtMatch ? parseFloat(amtMatch[1].replace(/,/g, '')) : 0;
     const lower = text.toLowerCase();

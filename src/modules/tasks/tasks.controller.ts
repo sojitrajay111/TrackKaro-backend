@@ -14,6 +14,7 @@ import {
 import { CurrentUser, CurrentUserPayload } from '@/common/decorators/current-user.decorator';
 import { ParseObjectIdPipe } from '@/common/pipes/parse-object-id.pipe';
 import { CreateTaskDto } from './dto/create-task.dto';
+import { QueryTasksDto } from './dto/query-tasks.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { TasksService } from './tasks.service';
 
@@ -22,12 +23,8 @@ export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 
   @Get()
-  findInRange(
-    @CurrentUser() user: CurrentUserPayload,
-    @Query('from') from: string,
-    @Query('to') to: string,
-  ) {
-    return this.tasksService.findInRange(user.userId, from, to);
+  findInRange(@CurrentUser() user: CurrentUserPayload, @Query() query: QueryTasksDto) {
+    return this.tasksService.findInRange(user.userId, query.from, query.to);
   }
 
   @Post()

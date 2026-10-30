@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { ScannedBillResult } from '../types';
+import { localDateKey } from '@/common/date/local-date.util';
 
 @Injectable()
 export class BillOcrService {
@@ -35,7 +36,7 @@ export class BillOcrService {
       merchant: 'Receipt',
       amount: 0,
       category: 'Other',
-      date: new Date().toISOString().split('T')[0],
+      date: localDateKey(),
     };
   }
 
@@ -93,7 +94,7 @@ Return ONLY valid JSON with no markdown wrapping or extra comments.`;
               merchant: String(parsed.merchant || 'Merchant Receipt'),
               amount: Number(parsed.amount) || 0,
               category: String(parsed.category || 'Other'),
-              date: String(parsed.date || new Date().toISOString().split('T')[0]),
+              date: String(parsed.date || localDateKey()),
             };
           }
         }

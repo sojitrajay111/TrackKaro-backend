@@ -18,9 +18,7 @@ export interface PublicTask {
 
 @Injectable()
 export class TasksService {
-  constructor(
-    @InjectModel(PlannerTask.name) private readonly taskModel: Model<TaskDocument>,
-  ) {}
+  constructor(@InjectModel(PlannerTask.name) private readonly taskModel: Model<TaskDocument>) {}
 
   async findInRange(userId: string, from: string, to: string): Promise<PublicTask[]> {
     const docs = await this.taskModel
@@ -34,7 +32,8 @@ export class TasksService {
     const doc = await this.taskModel.create({
       userId,
       title: dto.title.trim(),
-      dueDate: dto.dueDate,
+      // Date part only: range queries compare YYYY-MM-DD text.
+      dueDate: dto.dueDate.slice(0, 10),
       notes: dto.notes?.trim(),
       dueTime: dto.dueTime,
       priority: dto.priority ?? 'medium',
@@ -45,6 +44,7 @@ export class TasksService {
 
   async update(userId: string, id: string, dto: UpdateTaskDto): Promise<PublicTask> {
     const patch: Record<string, unknown> = { ...dto };
+    if (dto.dueDate !== undefined) patch.dueDate = dto.dueDate.slice(0, 10);
     if (dto.title !== undefined) patch.title = dto.title.trim();
     if (dto.notes !== undefined) patch.notes = dto.notes.trim() || undefined;
 

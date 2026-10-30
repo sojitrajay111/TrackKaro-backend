@@ -11,6 +11,7 @@ import {
   ProviderDealResult,
 } from './deals-provider.interface';
 import { getPlatformSearchUrl } from './platform-links.util';
+import { localDateKey } from '@/common/date/local-date.util';
 
 /**
  * LEGACY / COMPARISON ONLY — not the production path.
@@ -44,7 +45,7 @@ export class GeminiLegacyDealsProvider implements DealsProvider {
       return { status: 'unavailable', deals: [], message: 'GEMINI_API_KEY is not configured.' };
     }
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = localDateKey();
     const expiryMinStr = new Date(Date.now() + 86400000 * 7).toISOString().split('T')[0];
 
     try {

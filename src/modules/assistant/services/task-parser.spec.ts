@@ -117,7 +117,11 @@ describe('the assistant starter prompts', () => {
     ['કાલે સવારે 9 વાગે લાઈટ બિલ ભરવાનું યાદ અપાવો', 'લાઈટ બિલ ભરવા'],
   ])('%s', (text, title) => {
     expect(isTaskIntent(text)).toBe(true);
-    expect(ruleBasedTaskParse(text, TODAY)).toMatchObject({ title, dueDate: '2026-10-27', dueTime: '09:00' });
+    expect(ruleBasedTaskParse(text, TODAY)).toMatchObject({
+      title,
+      dueDate: '2026-10-27',
+      dueTime: '09:00',
+    });
   });
 });
 

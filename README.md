@@ -58,7 +58,7 @@ JWT_ACCESS_SECRET=your-access-secret-32-chars-minimum
 JWT_REFRESH_SECRET=your-refresh-secret-32-chars-minimum
 CORS_ORIGINS=http://localhost:8081,https://your-domain.com
 
-# Google Gemini AI API Key (Optional — enables Gemini 1.5 Flash features)
+# Google Gemini AI API Key (Optional — enables bill scanning, voice transcription, AI task parsing and chat)
 GEMINI_API_KEY=AIzaSy...your_gemini_key_here
 
 # Gmail account used to send "forgot password" OTP emails (Optional — enables password reset)
@@ -73,9 +73,19 @@ DEALS_ENGINE_MODE=provider
 # Cuelinks Publisher / Affiliate API credentials (Optional — sign up at cuelinks.com)
 CUELINKS_API_KEY=
 CUELINKS_CHANNEL_ID=
+
+# Push notifications via Firebase Cloud Messaging (Optional). Firebase console → Project settings →
+# Service accounts → Generate new private key; copy these three fields. Keep the key on one line
+# with literal 
+ for line breaks, wrapped in quotes.
+FIREBASE_PROJECT_ID=
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_PRIVATE_KEY=
 ```
 
 > **Note:** If `GEMINI_API_KEY` is not provided, the server will start normally and seamlessly use rule-based fallback responses for the assistant and receipt scanner.
+>
+> **Note:** Without the three `FIREBASE_*` values, notifications are still saved and listed in the app, but no push is sent. Server push currently covers **budget alerts** (80% / 100%), **group activity** and **price drops** (from the daily `GET /deals/check-tracked` cron). Bill and task reminders are scheduled on the phone, not sent by the server.
 >
 > **Note:** `EMAIL_PASSCODE` must be a [Gmail App Password](https://myaccount.google.com/apppasswords) (not your regular Gmail password — Google rejects plain-password SMTP auth). If `EMAIL_USER`/`EMAIL_PASSCODE` are not set, `/auth/forgot-password` will fail with a clear "Email service is not configured" error instead of the app crashing at boot.
 

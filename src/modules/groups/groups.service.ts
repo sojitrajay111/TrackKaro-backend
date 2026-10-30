@@ -26,6 +26,7 @@ import { RecordSettlementDto } from './dto/record-settlement.dto';
 import { DebtSimplificationService, MemberBalance } from './services/debt-simplification.service';
 import { ExpenseGroup, ExpenseGroupDocument } from './schemas/expense-group.schema';
 import { GroupExpense, GroupExpenseDocument } from './schemas/group-expense.schema';
+import { localDateKey } from '@/common/date/local-date.util';
 
 /** Best-effort default so the confirm sheet doesn't start on "Other" — the user can still pick
  * any category before confirming. */
@@ -148,15 +149,15 @@ export class GroupsService {
       }
     }
 
-    for (const targetUserId of recipientUserIds) {
-      void this.notificationsService
-        .create(targetUserId, {
-          title,
-          message,
-          type: 'activity',
-        })
-        .catch(() => {});
-    }
+    // Awaited, not fire-and-forget: on Vercel, work still running after the response is sent
+    // can be frozen or cut off. A failed notification never fails the request.
+    await Promise.all(
+      [...recipientUserIds].map((targetUserId) =>
+        this.notificationsService
+          .create(targetUserId, { title, message, type: 'activity' })
+          .catch(() => {}),
+      ),
+    );
   }
 
   async findAll(userId: string): Promise<PublicExpenseGroup[]> {
@@ -299,7 +300,7 @@ export class GroupsService {
 
     await group.save();
 
-    void this.broadcastGroupActivity(
+    await this.broadcastGroupActivity(
       group,
       userId,
       'Member Joined Group',
@@ -439,7 +440,7 @@ export class GroupsService {
       notes: dto.notes,
     });
 
-    void this.broadcastGroupActivity(
+    await this.broadcastGroupActivity(
       group,
       userId,
       'Group Expense Added',
@@ -509,6 +510,13 @@ export class GroupsService {
       expense.notes = dto.notes;
     }
 
+    // Shares already confirmed into someone's personal spending, by member.
+    const confirmedByMember = new Map(
+      (expense.splits || [])
+        .filter((s) => s.confirmedTransactionId)
+        .map((s) => [s.memberName, s.confirmedTransactionId as string]),
+    );
+
     if (dto.totalAmount !== undefined || dto.splits !== undefined) {
       const totalAmountMinor =
         dto.totalAmount !== undefined ? toMinorUnits(dto.totalAmount) : expense.totalAmountMinor;
@@ -517,6 +525,10 @@ export class GroupsService {
           ? dto.splits.map((s) => ({
               memberName: s.memberName,
               amountMinor: toMinorUnits(s.amount),
+              // Keep the link, or the share would be offered (and counted) a second time.
+              ...(confirmedByMember.has(s.memberName)
+                ? { confirmedTransactionId: confirmedByMember.get(s.memberName) }
+                : {}),
               ...(s.shares != null && s.shares >= 1
                 ? { shares: Math.min(99, Math.round(s.shares)) }
                 : {}),
@@ -557,12 +569,27 @@ export class GroupsService {
 
     await expense.save();
 
+    // Keep confirmed personal copies in step: new amount/title/date, or gone if the member left.
+    const stillSplit = new Map(expense.splits.map((s) => [s.memberName, s.amountMinor]));
+    const dropped: string[] = [];
+    for (const [member, txId] of confirmedByMember) {
+      const amountMinor = stillSplit.get(member);
+      if (amountMinor === undefined) dropped.push(txId);
+      else
+        await this.transactionsService.syncGroupShare(txId, {
+          amount: toMajorUnits(amountMinor),
+          title: expense.title,
+          date: expense.date,
+        });
+    }
+    if (dropped.length) await this.transactionsService.removeGroupShares(dropped);
+
     const changeSummary =
       changes.length > 0
         ? `Updated in "${group.name}":\n• ${changes.join('\n• ')}`
         : `Updated "${expense.title}" (₹${toMajorUnits(expense.totalAmountMinor)}) in ${group.name}`;
 
-    void this.broadcastGroupActivity(
+    await this.broadcastGroupActivity(
       group,
       userId,
       `Group Expense Updated: "${expense.title}"`,
@@ -583,9 +610,14 @@ export class GroupsService {
     const amount = toMajorUnits(expense.totalAmountMinor);
     const paidBy = expense.paidBy;
     const splitCount = expense.splits?.length || 0;
+    const confirmedIds = (expense.splits || [])
+      .map((s) => s.confirmedTransactionId)
+      .filter((id): id is string => Boolean(id));
     await expense.deleteOne();
+    // Shares people had confirmed into their own spending go with it.
+    await this.transactionsService.removeGroupShares(confirmedIds);
 
-    void this.broadcastGroupActivity(
+    await this.broadcastGroupActivity(
       group,
       userId,
       `Group Expense Deleted: "${title}"`,
@@ -604,6 +636,9 @@ export class GroupsService {
     if (!memberNames.has(dto.fromMember) || !memberNames.has(dto.toMember)) {
       throw new BadRequestException('Both parties in a settlement must be members of this group.');
     }
+    if (dto.fromMember === dto.toMember) {
+      throw new BadRequestException('A settlement needs two different people.');
+    }
 
     const amountMinor = toMinorUnits(dto.amount);
     const expense = await this.expenseModel.create({
@@ -612,7 +647,7 @@ export class GroupsService {
       title: `${dto.fromMember} paid ${dto.toMember}`,
       totalAmountMinor: amountMinor,
       paidBy: dto.fromMember,
-      date: new Date().toISOString().split('T')[0],
+      date: localDateKey(),
       splits: [{ memberName: dto.toMember, amountMinor }],
       isSettlement: true,
       settlementFrom: dto.fromMember,
@@ -620,7 +655,7 @@ export class GroupsService {
       notes: dto.notes ?? 'Settlement payment',
     });
 
-    void this.broadcastGroupActivity(
+    await this.broadcastGroupActivity(
       group,
       userId,
       'Group Settlement Recorded',

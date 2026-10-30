@@ -53,7 +53,11 @@ export class SubscriptionsService {
     return this.toPublic(doc);
   }
 
-  async update(userId: string, id: string, dto: UpdateSubscriptionDto): Promise<PublicSubscription> {
+  async update(
+    userId: string,
+    id: string,
+    dto: UpdateSubscriptionDto,
+  ): Promise<PublicSubscription> {
     const patch: Record<string, unknown> = { ...dto };
     if (dto.amount !== undefined) {
       patch.amountMinor = toMinorUnits(dto.amount);
@@ -64,8 +68,7 @@ export class SubscriptionsService {
     if (!existing) throw new NotFoundException('Subscription not found');
 
     const billingCycle = dto.billingCycle ?? existing.billingCycle;
-    const amountMinor =
-      dto.amount !== undefined ? toMinorUnits(dto.amount) : existing.amountMinor;
+    const amountMinor = dto.amount !== undefined ? toMinorUnits(dto.amount) : existing.amountMinor;
     patch.annualCostMinor =
       billingCycle === 'Monthly' ? amountMinor * MONTHS_PER_YEAR : amountMinor;
 

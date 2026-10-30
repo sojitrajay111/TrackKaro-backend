@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsIn,
@@ -46,7 +47,11 @@ export class TranscribeDto {
   @MaxLength(3_500_000)
   audioBase64!: string;
 
+  /** Browsers add parameters ("audio/webm;codecs=opus"); only the base type is checked and kept. */
   @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.split(';')[0].trim().toLowerCase() : value,
+  )
   @IsIn(AUDIO_MIME_TYPES)
   mimeType?: (typeof AUDIO_MIME_TYPES)[number];
 }
